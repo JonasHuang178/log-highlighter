@@ -31,6 +31,16 @@ struct Sci_TextRange {
 #define SCI_GETCHARACTERPOINTER     2520  // returns const char* to raw UTF-8 buffer
 
 // ---------------------------------------------------------------------------
+// Lines / navigation  (used by OverviewPanel)
+// ---------------------------------------------------------------------------
+#define SCI_GETLINECOUNT            2154  // → total line count in document
+#define SCI_LINEFROMPOSITION        2166  // wParam=bytePos → line number (0-based)
+#define SCI_GETFIRSTVISIBLELINE     2152  // → first visible line number
+#define SCI_LINESONSCREEN           2197  // → number of lines visible in view
+#define SCI_GOTOLINE                2024  // wParam=line → move caret to line start
+#define SCI_SCROLLCARET             2169  // ensure caret is visible (centers if needed)
+
+// ---------------------------------------------------------------------------
 // Style definitions
 // ---------------------------------------------------------------------------
 #define STYLE_DEFAULT               32    // Scintilla built-in default style
