@@ -1,0 +1,9 @@
+LIBRARY LogHighlighter
+
+EXPORTS
+    isUnicode
+    getName
+    getFuncsArray
+    setInfo
+    beNotified
+    messageProc
