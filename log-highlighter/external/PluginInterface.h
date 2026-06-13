@@ -78,6 +78,28 @@ static constexpr int SC_MOD_DELETETEXT      = 0x002; // text was deleted
 static constexpr int SC_MOD_CHANGEINDICATOR = 0x4000; // indicator changed (not a text edit)
 
 // ---------------------------------------------------------------------------
+// Notepad++ Docking API
+// Source: Notepad_plus_msgs.h (Notepad++ official SDK)
+// ---------------------------------------------------------------------------
+
+// tTbData.uMask flags
+static constexpr UINT DWS_DF_CONT_RIGHT = 0x00000002; // dock to right side
+static constexpr UINT DWS_ICONTAB       = 0x00000010; // show icon in tab
+static constexpr UINT DWS_ADDINFO       = 0x00000020; // show pszAddInfo
+
+struct tTbData {
+    HWND         hClient;       // plugin panel HWND
+    const TCHAR* pszName;       // panel title shown in tab
+    int          dlgID;         // dialog resource ID (0 if not using resource)
+    UINT         uMask;         // combination of DWS_* flags
+    HICON        hIconTab;      // icon shown in tab (nullptr = none)
+    const TCHAR* pszAddInfo;    // extra info string (nullptr if not used)
+    RECT         rcFloat;       // position when floating (ignored when docked)
+    int          iPrevCont;     // previous container index (set to -1)
+    const TCHAR* pszModuleName; // plugin DLL module name (for persistence)
+};
+
+// ---------------------------------------------------------------------------
 // Notepad++ messages
 // ---------------------------------------------------------------------------
 enum NppMsg : UINT {
@@ -87,8 +109,16 @@ enum NppMsg : UINT {
     NPPM_SETSTATUSBAR           = NPPMSG + 24,
     NPPM_GETPLUGINSCONFIGDIR    = NPPMSG + 46,
     NPPM_MENUCOMMAND            = NPPMSG + 48,
+    NPPM_DMMREGASDCKDLG         = NPPMSG + 33, // register a docking panel
     NPPM_GETCURRENTVIEW         = NPPMSG + 98,
 };
+
+// ---------------------------------------------------------------------------
+// Notepad++ notification codes  (nmhdr.code in WM_NOTIFY to plugin)
+// Source: Notepad_plus_msgs.h
+// ---------------------------------------------------------------------------
+static constexpr UINT NPPN_FIRST = 1000;
+static constexpr UINT NPPN_READY = NPPN_FIRST + 1; // NPP fully initialized
 
 // Status bar panel indices
 enum StatusBarSection : WPARAM {

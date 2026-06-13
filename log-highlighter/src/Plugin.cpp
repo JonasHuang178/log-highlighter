@@ -1,7 +1,9 @@
 #include "Plugin.h"
 #include "Parser.h"
 #include "Highlighter.h"
+#include "OverviewPanel.h"
 #include "../config/AboutInfo.h"
+#include "../config/LogPatterns.h"
 #include <tchar.h>
 #include <vector>
 
@@ -13,6 +15,9 @@ NppData g_nppData = {};
 static FuncItem    g_funcItems[2];   // 0 = Parse Log, 1 = About
 static ShortcutKey g_parseLogKey;
 static std::vector<Match> g_matches;
+
+// The overview panel (right-side docked minimap)
+static OverviewPanel g_overviewPanel;
 
 // Auto-highlight via SCN_MODIFIED is inactive until the user presses Ctrl+Alt+Q
 // at least once.  This prevents highlights from appearing on file open / load.
@@ -32,6 +37,45 @@ HWND GetCurrentScintilla()
                                : g_nppData._scintillaSecondHandle;
 }
 
+// Build PanelMark list from g_matches (only showInPanel == true rules)
+static std::vector<PanelMark> BuildPanelMarks(HWND hSci,
+                                               const std::vector<Match>& matches)
+{
+    std::vector<PanelMark> out;
+    out.reserve(matches.size());
+
+    for (const auto& m : matches)
+    {
+        bool   show  = false;
+        COLORREF col = RGB(255, 255, 255);
+
+        if (m.type == MatchType::LOG_TYPE)
+        {
+            const auto& rule = LOG_TYPE_RULES[m.ruleIndex];
+            show = rule.showInPanel;
+            // Convert Scintilla BGR to GDI RGB
+            COLORREF bgr = rule.textColor;
+            col = RGB(GetBValue(bgr), GetGValue(bgr), GetRValue(bgr));
+        }
+        else // STEP_TYPE
+        {
+            const auto& rule = STEP_TYPE_RULES[m.ruleIndex];
+            show = rule.showInPanel;
+            COLORREF bgr = rule.bgColor;
+            col = RGB(GetBValue(bgr), GetGValue(bgr), GetRValue(bgr));
+        }
+
+        if (!show) continue;
+
+        int line = static_cast<int>(
+            ::SendMessage(hSci, SCI_LINEFROMPOSITION,
+                          static_cast<WPARAM>(m.byteOffset), 0));
+        out.push_back({ line, col });
+    }
+
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Command: Parse Log  (Ctrl+Alt+Q)
 // ---------------------------------------------------------------------------
@@ -45,6 +89,9 @@ static void ParseLog()
     ClearAllHighlights(hSci);
     ApplyHighlights(hSci, g_matches); // repaintAfter = true (default)
     g_highlightActive = true;         // enable real-time highlighting from now on
+
+    // Update overview panel marks
+    g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +156,16 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
 {
     if (!notification) return;
 
-    switch (notification->nmhdr.code)
+    const UINT code = notification->nmhdr.code;
+
+    // --- Notepad++ notification: fully initialized ---
+    if (code == NPPN_READY)
+    {
+        g_overviewPanel.Init(g_nppData._nppHandle, g_hInstance);
+        return;
+    }
+
+    switch (code)
     {
     case SCN_MODIFIED:
     {
@@ -131,8 +187,17 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
         g_matches = ParseDocument(hSci); // full re-parse via direct buffer pointer (fast)
         ClearAllHighlights(hSci);
         ApplyHighlights(hSci, g_matches, /*repaintAfter=*/false); // Scintilla repaints itself
+
+        // Update overview panel marks
+        g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
         break;
     }
+
+    case SCN_UPDATEUI:
+        // Triggered on scroll, selection change, etc. — refresh viewport indicator box.
+        g_overviewPanel.UpdateViewport();
+        break;
+
     default:
         break;
     }

@@ -28,6 +28,9 @@
     <ClCompile Include="src\Highlighter.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\OverviewPanel.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
 
   <!-- Header files (.h) -->
@@ -47,6 +50,9 @@
     <ClInclude Include="config\AboutInfo.h">
       <Filter>config</Filter>
     </ClInclude>
+    <ClInclude Include="config\OverviewConfig.h">
+      <Filter>config</Filter>
+    </ClInclude>
     <ClInclude Include="src\Plugin.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -54,6 +60,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\Highlighter.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OverviewPanel.h">
       <Filter>src</Filter>
     </ClInclude>
   </ItemGroup>
