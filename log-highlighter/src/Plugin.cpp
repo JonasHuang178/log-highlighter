@@ -91,35 +91,45 @@ static void ParseLog()
 
     InitStyles(hSci);
 
-    // Show progress dialog. Disable the NPP window so menus / shortcuts
-    // (including Ctrl+Alt+Q itself) cannot trigger re-entrant calls while
-    // PeekMessage is running inside the parse loop.
     const int totalLines = static_cast<int>(
         ::SendMessage(hSci, SCI_GETLINECOUNT, 0, 0));
 
-    HWND hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
-    // Populate the dialog text immediately so it shows "0 / N lines" even
-    // for files small enough to finish before the first 500-line callback.
-    SetProgressLine(hDlg, 0, totalLines);
-    ::UpdateWindow(hDlg);
-    ::EnableWindow(g_nppData._nppHandle, FALSE);
+    // Only show a progress dialog for large files. For small files the parse
+    // completes in microseconds — showing and immediately destroying a dialog
+    // just produces an annoying flash with no useful information.
+    static constexpr int PROGRESS_MIN_LINES = 5000;
+    const bool showProgress = (totalLines >= PROGRESS_MIN_LINES);
 
-    g_matches = ParseDocument(hSci, [&](int cur, int total) -> bool
+    HWND hDlg = nullptr;
+    if (showProgress)
     {
-        SetProgressLine(hDlg, cur, total);
-        MSG msg;
-        while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-        {
-            ::TranslateMessage(&msg);
-            ::DispatchMessage(&msg);
-        }
-        return !IsProgressCancelled(hDlg);
-    });
+        hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
+        SetProgressLine(hDlg, 0, totalLines);
+        ::UpdateWindow(hDlg);
+        ::EnableWindow(g_nppData._nppHandle, FALSE);
+    }
 
-    const bool cancelled = IsProgressCancelled(hDlg);
-    ::EnableWindow(g_nppData._nppHandle, TRUE);
-    ::SetForegroundWindow(g_nppData._nppHandle);
-    ::DestroyWindow(hDlg);
+    g_matches = ParseDocument(hSci, showProgress
+        ? std::function<bool(int, int)>([&](int cur, int total) -> bool
+          {
+              SetProgressLine(hDlg, cur, total);
+              MSG msg;
+              while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+              {
+                  ::TranslateMessage(&msg);
+                  ::DispatchMessage(&msg);
+              }
+              return !IsProgressCancelled(hDlg);
+          })
+        : nullptr);
+
+    const bool cancelled = showProgress && IsProgressCancelled(hDlg);
+    if (showProgress)
+    {
+        ::EnableWindow(g_nppData._nppHandle, TRUE);
+        ::SetForegroundWindow(g_nppData._nppHandle);
+        ::DestroyWindow(hDlg);
+    }
 
     g_parseInProgress = false;
 
