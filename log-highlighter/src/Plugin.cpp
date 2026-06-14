@@ -94,7 +94,14 @@ static void ParseLog()
     // Show progress dialog. Disable the NPP window so menus / shortcuts
     // (including Ctrl+Alt+Q itself) cannot trigger re-entrant calls while
     // PeekMessage is running inside the parse loop.
+    const int totalLines = static_cast<int>(
+        ::SendMessage(hSci, SCI_GETLINECOUNT, 0, 0));
+
     HWND hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
+    // Populate the dialog text immediately so it shows "0 / N lines" even
+    // for files small enough to finish before the first 500-line callback.
+    SetProgressLine(hDlg, 0, totalLines);
+    ::UpdateWindow(hDlg);
     ::EnableWindow(g_nppData._nppHandle, FALSE);
 
     g_matches = ParseDocument(hSci, [&](int cur, int total) -> bool
