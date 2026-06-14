@@ -4,139 +4,203 @@
 #include <cstring>
 #include <cctype>
 #include <vector>
+#include <queue>
 
 static constexpr int LOG_RULE_COUNT =
     static_cast<int>(sizeof(LOG_TYPE_RULES) / sizeof(LOG_TYPE_RULES[0]));
 static constexpr int STEP_RULE_COUNT =
     static_cast<int>(sizeof(STEP_TYPE_RULES) / sizeof(STEP_TYPE_RULES[0]));
 
-// Bounded substring search within [hay, hayEnd).
-static const char* find_range(const char* hay, const char* hayEnd,
-                               const char* needle, size_t needleLen)
+// ---------------------------------------------------------------------------
+//  Aho-Corasick multi-pattern automaton
+//  Scans the document in a single pass regardless of the number of patterns.
+// ---------------------------------------------------------------------------
+struct AhoCorasick
 {
-    if (needleLen == 0) return hay;
-    if (hayEnd - hay < static_cast<ptrdiff_t>(needleLen)) return nullptr;
-    const char* last = hayEnd - needleLen;
-    for (; hay <= last; ++hay)
-        if (memcmp(hay, needle, needleLen) == 0) return hay;
-    return nullptr;
+    struct Output { int ruleIndex; MatchType type; int len; };
+
+    struct State
+    {
+        int next[256];
+        int fail = 0;
+        std::vector<Output> outputs;  // patterns that end at this state
+        State() { std::fill(next, next + 256, -1); }
+    };
+
+    std::vector<State> s;
+
+    AhoCorasick() { s.emplace_back(); } // state 0 = root
+
+    void addPattern(const char* pat, int ruleIndex, MatchType type)
+    {
+        int cur = 0;
+        int len = 0;
+        for (const char* p = pat; *p; ++p, ++len)
+        {
+            unsigned char c = static_cast<unsigned char>(*p);
+            if (s[cur].next[c] == -1)
+            {
+                s[cur].next[c] = static_cast<int>(s.size());
+                s.emplace_back();
+            }
+            cur = s[cur].next[c];
+        }
+        s[cur].outputs.push_back({ ruleIndex, type, len });
+    }
+
+    void build()
+    {
+        // BFS to set failure links and complete the goto function so every
+        // state has a valid transition for every character (no -1 entries).
+        std::queue<int> q;
+        for (int c = 0; c < 256; ++c)
+        {
+            if (s[0].next[c] == -1)
+                s[0].next[c] = 0;          // undefined → loop to root
+            else
+            {
+                s[s[0].next[c]].fail = 0;
+                q.push(s[0].next[c]);
+            }
+        }
+        while (!q.empty())
+        {
+            int u = q.front(); q.pop();
+            // Inherit outputs from failure state (suffix matches)
+            for (const auto& out : s[s[u].fail].outputs)
+                s[u].outputs.push_back(out);
+
+            for (int c = 0; c < 256; ++c)
+            {
+                if (s[u].next[c] == -1)
+                    s[u].next[c] = s[s[u].fail].next[c]; // follow fail link
+                else
+                {
+                    s[s[u].next[c]].fail = s[s[u].fail].next[c];
+                    q.push(s[u].next[c]);
+                }
+            }
+        }
+    }
+};
+
+// Build the automaton once from the compile-time pattern tables.
+static const AhoCorasick& getAC()
+{
+    static AhoCorasick ac = []() {
+        AhoCorasick a;
+        for (int i = 0; i < LOG_RULE_COUNT;  ++i)
+            a.addPattern(LOG_TYPE_RULES [i].keyword, i, MatchType::LOG_TYPE);
+        for (int i = 0; i < STEP_RULE_COUNT; ++i)
+            a.addPattern(STEP_TYPE_RULES[i].prefix,  i, MatchType::STEP_TYPE);
+        a.build();
+        return a;
+    }();
+    return ac;
 }
 
 // ---------------------------------------------------------------------------
-//  ParseDocument
-//
-//  Scans the document line-by-line and returns all matches.
-//
-//  progressFn(currentLine, totalLines) is called every 500 lines.
-//  Return false from progressFn to cancel; an empty vector is returned.
-//
-//  The Scintilla buffer is copied before scanning so PeekMessage calls
-//  inside progressFn cannot invalidate the pointer via document edits.
+//  ScanBuffer — single-pass scan using Aho-Corasick.
+//  Safe to call from any thread.
+// ---------------------------------------------------------------------------
+static std::vector<Match> ScanBuffer(const char*                    text,
+                                      size_t                         len,
+                                      int                            totalLines,
+                                      std::function<bool(int, int)>  progressFn)
+{
+    std::vector<Match> results;
+    if (!text || len == 0) return results;
+
+    const AhoCorasick& ac  = getAC();
+    const char* const  end = text + len;
+
+    int  acState  = 0;
+    int  lineNo   = 0;
+
+    for (const char* p = text; p < end; ++p)
+    {
+        const unsigned char c = static_cast<unsigned char>(*p);
+
+        // Count completed lines for progress (newline = end of a line)
+        if (c == '\n')
+        {
+            ++lineNo;
+            if (progressFn && (lineNo % 500 == 0 || lineNo == totalLines))
+                if (!progressFn(lineNo, totalLines)) return {};
+        }
+
+        acState = ac.s[acState].next[c];
+
+        if (ac.s[acState].outputs.empty()) continue;
+
+        for (const auto& out : ac.s[acState].outputs)
+        {
+            // AC reports a match ending at p; matchStart is p - len + 1.
+            const char* matchStart = p - out.len + 1;
+
+            if (out.type == MatchType::LOG_TYPE)
+            {
+                results.push_back({ MatchType::LOG_TYPE, out.ruleIndex,
+                                     static_cast<intptr_t>(matchStart - text),
+                                     static_cast<intptr_t>(out.len) });
+            }
+            else // STEP_TYPE — prefix matched; validate digit(s) + space/EOL
+            {
+                const char* q = p + 1;  // first char after prefix
+                if (q >= end || !std::isdigit(static_cast<unsigned char>(*q)))
+                    continue;
+                while (q < end && std::isdigit(static_cast<unsigned char>(*q)))
+                    ++q;
+                if (q < end && *q != ' ' && *q != '\r' && *q != '\n')
+                    continue;
+                // Extend match to end-of-line content
+                const char* lineEnd = q;
+                while (lineEnd < end && *lineEnd != '\r' && *lineEnd != '\n')
+                    ++lineEnd;
+                results.push_back({ MatchType::STEP_TYPE, out.ruleIndex,
+                                     static_cast<intptr_t>(matchStart - text),
+                                     static_cast<intptr_t>(lineEnd - matchStart) });
+            }
+        }
+    }
+
+    // Final progress tick if file doesn't end with a newline
+    if (progressFn && lineNo < totalLines)
+        progressFn(totalLines, totalLines);
+
+    return results;
+}
+
+// ---------------------------------------------------------------------------
+//  ParseDocument — snapshot + scan on the UI thread.
 // ---------------------------------------------------------------------------
 std::vector<Match> ParseDocument(HWND                          hScintilla,
                                   std::function<bool(int, int)> progressFn)
 {
-    std::vector<Match> results;
-
     const intptr_t docLen = static_cast<intptr_t>(
         ::SendMessage(hScintilla, SCI_GETLENGTH, 0, 0));
-    if (docLen <= 0) return results;
+    if (docLen <= 0) return {};
 
     const char* raw = reinterpret_cast<const char*>(
         ::SendMessage(hScintilla, SCI_GETCHARACTERPOINTER, 0, 0));
-    if (!raw) return results;
+    if (!raw) return {};
 
-    // Local copy — safe even if Scintilla's buffer is reallocated during
-    // the PeekMessage loop inside progressFn.
     std::vector<char> localBuf(raw, raw + docLen);
-    const char* const text   = localBuf.data();
-    const char* const docEnd = text + docLen;
 
     const int totalLines = static_cast<int>(
         ::SendMessage(hScintilla, SCI_GETLINECOUNT, 0, 0));
 
-    // Pre-compute keyword lengths once.
-    size_t logKwLen [LOG_RULE_COUNT];
-    size_t stepPfLen[STEP_RULE_COUNT];
-    for (int i = 0; i < LOG_RULE_COUNT;  ++i) logKwLen [i] = strlen(LOG_TYPE_RULES [i].keyword);
-    for (int i = 0; i < STEP_RULE_COUNT; ++i) stepPfLen[i] = strlen(STEP_TYPE_RULES[i].prefix);
+    return ScanBuffer(localBuf.data(), static_cast<size_t>(docLen),
+                      totalLines, std::move(progressFn));
+}
 
-    int         lineNo    = 0;
-    const char* lineStart = text;
-
-    while (lineStart < docEnd)
-    {
-        // Locate end of line content (before \r or \n).
-        const char* lineEnd = lineStart;
-        while (lineEnd < docEnd && *lineEnd != '\r' && *lineEnd != '\n')
-            ++lineEnd;
-
-        // --- Log Type: all keyword occurrences on this line ---
-        for (int i = 0; i < LOG_RULE_COUNT; ++i)
-        {
-            const char* kw    = LOG_TYPE_RULES[i].keyword;
-            const size_t kwLen = logKwLen[i];
-            const char* p      = lineStart;
-
-            while (true)
-            {
-                const char* hit = find_range(p, lineEnd, kw, kwLen);
-                if (!hit) break;
-                results.push_back({ MatchType::LOG_TYPE, i,
-                                     static_cast<intptr_t>(hit - text),
-                                     static_cast<intptr_t>(kwLen) });
-                p = hit + 1;
-            }
-        }
-
-        // --- Step Type: prefix + one-or-more digits + (space or end-of-line) ---
-        for (int i = 0; i < STEP_RULE_COUNT; ++i)
-        {
-            const char*  prefix    = STEP_TYPE_RULES[i].prefix;
-            const size_t prefixLen = stepPfLen[i];
-            const char*  p         = lineStart;
-
-            while (true)
-            {
-                const char* hit = find_range(p, lineEnd, prefix, prefixLen);
-                if (!hit) break;
-
-                const char* q = hit + prefixLen;
-                if (q >= lineEnd || !std::isdigit(static_cast<unsigned char>(*q)))
-                {
-                    p = hit + 1;
-                    continue;
-                }
-                while (q < lineEnd && std::isdigit(static_cast<unsigned char>(*q)))
-                    ++q;
-                if (q < lineEnd && *q != ' ')
-                {
-                    p = hit + 1;
-                    continue;
-                }
-
-                // Match covers from prefix start to end of line content.
-                results.push_back({ MatchType::STEP_TYPE, i,
-                                     static_cast<intptr_t>(hit  - text),
-                                     static_cast<intptr_t>(lineEnd - hit) });
-                p = hit + 1;
-            }
-        }
-
-        ++lineNo;
-
-        // Progress callback every 500 lines and on the final line.
-        if (progressFn && (lineNo % 500 == 0 || lineNo == totalLines))
-        {
-            if (!progressFn(lineNo, totalLines))
-                return {};  // cancelled
-        }
-
-        // Advance past the newline sequence (\r, \n, or \r\n).
-        lineStart = lineEnd;
-        if (lineStart < docEnd && *lineStart == '\r') ++lineStart;
-        if (lineStart < docEnd && *lineStart == '\n') ++lineStart;
-    }
-
-    return results;
+// ---------------------------------------------------------------------------
+//  ParseDocument — scan a pre-snapshotted buffer (worker-thread safe).
+// ---------------------------------------------------------------------------
+std::vector<Match> ParseDocument(const std::vector<char>&       docBuf,
+                                  int                            totalLines,
+                                  std::function<bool(int, int)>  progressFn)
+{
+    return ScanBuffer(docBuf.data(), docBuf.size(),
+                      totalLines, std::move(progressFn));
 }

@@ -8,6 +8,9 @@
 #include "../external/Scintilla.h"
 #include <tchar.h>
 #include <vector>
+#include <thread>
+#include <atomic>
+#include <chrono>
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -24,6 +27,13 @@ static OverviewPanel g_overviewPanel;
 // Auto-highlight via SCN_MODIFIED is inactive until the user presses Ctrl+Alt+Q
 // at least once.  This prevents highlights from appearing on file open / load.
 static bool g_highlightActive = false;
+
+// Lazy indicator state: indicators have been applied up to (but not including)
+// this byte offset. Extended by SCN_UPDATEUI as the user scrolls.
+static intptr_t g_appliedByteEnd = -1;
+
+// How many lines ahead of the visible viewport to pre-apply indicators.
+static constexpr int APPLY_LOOKAHEAD_LINES = 1000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,6 +87,21 @@ static std::vector<PanelMark> BuildPanelMarks(HWND hSci,
 }
 
 // ---------------------------------------------------------------------------
+// Helpers for lazy indicator application
+// ---------------------------------------------------------------------------
+
+// Returns the byte position at the end of (firstVisibleLine + linesOnScreen
+// + APPLY_LOOKAHEAD_LINES), clamped to the last line in the document.
+static intptr_t GetLookaheadByteEnd(HWND hSci)
+{
+    const int firstLine    = static_cast<int>(::SendMessage(hSci, SCI_GETFIRSTVISIBLELINE, 0, 0));
+    const int linesOnScr   = static_cast<int>(::SendMessage(hSci, SCI_LINESONSCREEN, 0, 0));
+    const int totalLines   = static_cast<int>(::SendMessage(hSci, SCI_GETLINECOUNT, 0, 0));
+    const int endLine      = min(firstLine + linesOnScr + APPLY_LOOKAHEAD_LINES, totalLines - 1);
+    return static_cast<intptr_t>(::SendMessage(hSci, SCI_GETLINEENDPOSITION, endLine, 0));
+}
+
+// ---------------------------------------------------------------------------
 // Command: Parse Log  (Ctrl+Alt+Q)
 // ---------------------------------------------------------------------------
 static bool g_parseInProgress = false;  // re-entrancy guard
@@ -91,6 +116,8 @@ static void ParseLog()
 
     InitStyles(hSci);
 
+    const auto t0 = std::chrono::steady_clock::now();
+
     const int totalLines = static_cast<int>(
         ::SendMessage(hSci, SCI_GETLINECOUNT, 0, 0));
 
@@ -101,34 +128,82 @@ static void ParseLog()
     const bool showProgress = (totalLines >= PROGRESS_MIN_LINES);
 
     HWND hDlg = nullptr;
+    bool cancelled = false;
+
     if (showProgress)
     {
+        // Snapshot the Scintilla buffer on the UI thread before creating any
+        // other windows, so all three Scintilla calls are atomic (nothing can
+        // be dispatched between them).
+        const intptr_t docLen = static_cast<intptr_t>(
+            ::SendMessage(hSci, SCI_GETLENGTH, 0, 0));
+        const char* rawPtr = reinterpret_cast<const char*>(
+            ::SendMessage(hSci, SCI_GETCHARACTERPOINTER, 0, 0));
+        std::vector<char> docBuf(rawPtr, rawPtr + docLen);
+
         hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
         SetProgressLine(hDlg, 0, totalLines);
         ::UpdateWindow(hDlg);
         ::EnableWindow(g_nppData._nppHandle, FALSE);
-    }
+        ::SetForegroundWindow(hDlg);
 
-    g_matches = ParseDocument(hSci, showProgress
-        ? std::function<bool(int, int)>([&](int cur, int total) -> bool
-          {
-              SetProgressLine(hDlg, cur, total);
-              MSG msg;
-              while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-              {
-                  ::TranslateMessage(&msg);
-                  ::DispatchMessage(&msg);
-              }
-              return !IsProgressCancelled(hDlg);
-          })
-        : nullptr);
+        // Parse on a worker thread so the UI thread stays in its message loop
+        // and the progress dialog remains alive and responsive throughout.
+        // The worker only reads docBuf — it never calls SendMessage to Scintilla.
+        std::vector<Match> workerMatches;
+        std::atomic<bool>  workerCancelled { false };
+        HANDLE hDone = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
-    const bool cancelled = showProgress && IsProgressCancelled(hDlg);
-    if (showProgress)
-    {
+        std::thread worker([&]() {
+            // Parse the pre-snapshotted buffer — never touches Scintilla.
+            workerMatches = ParseDocument(docBuf, totalLines,
+                [&](int cur, int total) -> bool {
+                    ::PostMessage(hDlg, WM_APP, static_cast<WPARAM>(cur),
+                                  static_cast<LPARAM>(total));
+                    return !workerCancelled.load();
+                });
+            ::SetEvent(hDone);
+        });
+
+        // UI thread message loop — keeps dialog painted and Cancel responsive.
+        MSG msg;
+        while (::MsgWaitForMultipleObjects(1, &hDone, FALSE, INFINITE, QS_ALLINPUT)
+               != WAIT_OBJECT_0)
+        {
+            while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+            {
+                if (msg.hwnd == hDlg && msg.message == WM_APP)
+                    SetProgressLine(hDlg,
+                                    static_cast<int>(msg.wParam),
+                                    static_cast<int>(msg.lParam));
+                else
+                {
+                    ::TranslateMessage(&msg);
+                    ::DispatchMessage(&msg);
+                }
+                if (IsProgressCancelled(hDlg))
+                    workerCancelled.store(true);
+            }
+        }
+        while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+        {
+            ::TranslateMessage(&msg);
+            ::DispatchMessage(&msg);
+        }
+
+        worker.join();
+        ::CloseHandle(hDone);
+
+        cancelled = IsProgressCancelled(hDlg) || workerCancelled.load();
+        g_matches = std::move(workerMatches);
+
         ::EnableWindow(g_nppData._nppHandle, TRUE);
         ::SetForegroundWindow(g_nppData._nppHandle);
         ::DestroyWindow(hDlg);
+    }
+    else
+    {
+        g_matches = ParseDocument(hSci);
     }
 
     g_parseInProgress = false;
@@ -137,6 +212,7 @@ static void ParseLog()
     {
         // Leave the document in its original state.
         ClearAllHighlights(hSci);
+        g_appliedByteEnd = -1;
         if (g_overviewPanel.IsInitialized())
             g_overviewPanel.Update(hSci, {});
         g_highlightActive = false;
@@ -144,15 +220,36 @@ static void ParseLog()
     }
 
     ClearAllHighlights(hSci);
-    ApplyHighlights(hSci, g_matches); // repaintAfter = true (default)
-    g_highlightActive = true;         // enable real-time highlighting from now on
+    g_appliedByteEnd = -1;
 
-    // Init AFTER ApplyHighlights so SWP_FRAMECHANGED doesn't queue a WM_SIZE
-    // that fires before the indicator fill reaches the screen.
+    // Apply only the visible viewport + lookahead. The rest is deferred to
+    // SCN_UPDATEUI so Ctrl+Alt+Q returns instantly regardless of file size.
+    const intptr_t applyEnd = GetLookaheadByteEnd(hSci);
+    ApplyHighlightsInRange(hSci, g_matches, 0, applyEnd + 1);
+    g_appliedByteEnd  = applyEnd;
+    g_highlightActive = true;
+
     if (!g_overviewPanel.IsInitialized())
         g_overviewPanel.Init(g_nppData._nppHandle, hSci, g_hInstance);
-
     g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
+
+    const auto t1 = std::chrono::steady_clock::now();
+    const double elapsed = std::chrono::duration<double>(t1 - t0).count();
+    wchar_t statusBuf[64];
+    const int total_s = static_cast<int>(elapsed);
+    const int hh = total_s / 3600;
+    const int mm = (total_s % 3600) / 60;
+    const int ss = total_s % 60;
+    const int ms = static_cast<int>((elapsed - total_s) * 1000);
+    if (hh > 0)
+        ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d:%02d.%03d", hh, mm, ss, ms);
+    else if (mm > 0)
+        ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d.%03d", mm, ss, ms);
+    else
+        ::swprintf_s(statusBuf, L"log-highlighter: parsed in %.3f s", elapsed);
+    ::SendMessage(g_nppData._nppHandle, NPPM_SETSTATUSBAR,
+                  STATUSBAR_DOC_TYPE,
+                  reinterpret_cast<LPARAM>(statusBuf));
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +338,7 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
         g_matches = ParseDocument(hSci); // full re-parse via direct buffer pointer (fast)
         ClearAllHighlights(hSci);
         ApplyHighlights(hSci, g_matches, /*repaintAfter=*/false); // Scintilla repaints itself
+        g_appliedByteEnd = static_cast<intptr_t>(::SendMessage(hSci, SCI_GETLENGTH, 0, 0));
 
         // Update overview panel marks
         g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
@@ -250,6 +348,23 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
     case SCN_UPDATEUI:
         // Triggered on scroll, selection change, etc. — refresh viewport indicator box.
         g_overviewPanel.UpdateViewport();
+
+        // Extend lazy indicator coverage to keep the viewport highlighted as user scrolls.
+        if (g_highlightActive && !g_matches.empty())
+        {
+            HWND hSci2 = reinterpret_cast<HWND>(notification->nmhdr.hwndFrom);
+            if (hSci2)
+            {
+                const intptr_t needed = GetLookaheadByteEnd(hSci2);
+                if (needed > g_appliedByteEnd)
+                {
+                    ApplyHighlightsInRange(hSci2, g_matches,
+                                           g_appliedByteEnd + 1, needed + 1,
+                                           /*repaintAfter=*/false);
+                    g_appliedByteEnd = needed;
+                }
+            }
+        }
         break;
 
     default:
