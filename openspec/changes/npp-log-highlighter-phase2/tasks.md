@@ -1,56 +1,97 @@
-## 1. Extend PluginInterface.h with Docking API
+## 1. Update config/LogPatterns.h
 
-- [x] 1.1 Add `tTbData` struct (hClient, pszName, dlgID, uMask, hIconTab, pszAddInfo, rcFloat, iPrevCont, pszModuleName)
-- [x] 1.2 Add docking flags: `DWS_DF_CONT_RIGHT`, `DWS_ICONTAB`, `DWS_ADDINFO`
-- [x] 1.3 Add `NPPM_DMMREGASDCKDLG` to `NppMsg` enum (cross-check value against Notepad++ Notepad_plus_msgs.h)
-- [x] 1.4 Add `NPPN_READY` to `ScintillaNotification` enum (cross-check value against Notepad++ SDK)
-- [x] 1.5 Add `SCN_UPDATEUI` is already present — verify it triggers on scroll events
+- [x] 1.1 Add `bool showInPanel` field to `LogTypeRule` struct
+- [x] 1.2 Add `bool showInPanel` field to `StepTypeRule` struct
+- [x] 1.3 Set `showInPanel = true` for `[ ERROR ]` rule; `false` for all others
 
-## 2. Update config/LogPatterns.h
+## 2. Create config/OverviewConfig.h
 
-- [x] 2.1 Add `bool showInPanel` field to `LogTypeRule` struct
-- [x] 2.2 Add `bool showInPanel` field to `StepTypeRule` struct
-- [x] 2.3 Set `showInPanel = false` for all rules in `LOG_TYPE_RULES[]` except `[ ERROR ]`
-- [x] 2.4 Set `showInPanel = true` for `[ ERROR ]` rule
-- [x] 2.5 Set `showInPanel = false` for all rules in `STEP_TYPE_RULES[]`
+- [x] 2.1 Define `OVERVIEW_PANEL_WIDTH` (14px)
+- [x] 2.2 Define `OVERVIEW_MARK_MIN_H` (1px — reduced from 3 to prevent solid-color panel)
+- [x] 2.3 Define `OVERVIEW_VIEWPORT_COLOR` — viewport box border color
+- [x] 2.4 Define `OVERVIEW_VIEWPORT_BG_COLOR` — viewport box fill color (`CLR_NONE` = system scrollbar track color)
+- [x] 2.5 Add to `log-highlighter.vcxproj` and `.vcxproj.filters`
 
-## 3. Create config/OverviewConfig.h
+## 3. Add SCI_ constants to external/Scintilla.h
 
-- [x] 3.1 Define `OVERVIEW_PANEL_WIDTH` (default: 14) — panel width in pixels
-- [x] 3.2 Define `OVERVIEW_MARK_MIN_H` (default: 3) — minimum mark height in pixels
-- [x] 3.3 Define `OVERVIEW_VIEWPORT_COLOR` — viewport box color (e.g., `RGB(200, 200, 200)`)
-- [x] 3.4 Add `OverviewConfig.h` to `log-highlighter.vcxproj` under config ItemGroup
-- [x] 3.5 Add `OverviewConfig.h` to `log-highlighter.vcxproj.filters` under config filter
+- [x] 3.1 `SCI_POSITIONFROMLINE`, `SCI_GETLINEENDPOSITION`
+- [x] 3.2 `SCI_SETSELECTIONSTART`, `SCI_SETSELECTIONEND`, `SCI_SETEMPTYSELECTION`
+- [x] 3.3 `SCI_SETFIRSTVISIBLELINE`, `SCI_LINESCROLL`
 
-## 4. Implement OverviewPanel (src/OverviewPanel.h + OverviewPanel.cpp)
+## 4. Implement OverviewPanel (NCA approach)
 
-- [x] 4.1 Declare `OverviewPanel` class with: `Init(HWND hNpp, HINSTANCE hInst)`, `Update(HWND hSci, const std::vector<Match>&)`, `UpdateViewport()`, `Destroy()`
-- [x] 4.2 Implement `Init()`: register window class, create panel HWND, call `NPPM_DMMREGASDCKDLG` with `DWS_DF_CONT_RIGHT`
-- [x] 4.3 Implement `WndProc`: handle `WM_PAINT`, `WM_SIZE`, `WM_LBUTTONDBLCLK`, `WM_ERASEBKGND`
-- [x] 4.4 Implement `OnPaint()`: double-buffered (off-screen DC + `BitBlt`), fill background, draw colored marks with merge logic, draw viewport box on top
-- [x] 4.5 Mark position formula: `y = (matchLine / totalLines) * panelH`; height = `max(OVERVIEW_MARK_MIN_H, panelH / totalLines)`
-- [x] 4.6 Mark merge logic: if next same-color mark's y is within 2px of previous mark's bottom, extend previous mark instead of drawing new one
-- [x] 4.7 Viewport box: `boxTop = (firstVisible / totalLines) * panelH`; `boxBottom = ((firstVisible + visibleLines) / totalLines) * panelH`; draw as semi-transparent rect
-- [x] 4.8 Implement `OnDblClick(y)`: compute `targetLine = (y / panelH) * totalLines`; call `SCI_GOTOLINE(targetLine)` then `SCI_SCROLLCARET`
-- [x] 4.9 Implement `Update()`: store `hSci` and filtered marks, call `InvalidateRect`
-- [x] 4.10 Implement `UpdateViewport()`: call `InvalidateRect` to trigger viewport box redraw
-- [x] 4.11 Add `OverviewPanel.h` and `OverviewPanel.cpp` to `log-highlighter.vcxproj` and `.vcxproj.filters`
+- [x] 4.1 Declare `OverviewPanel` class: `Init(HWND hNpp, HWND hSci, HINSTANCE)`, `Update(HWND, vector<PanelMark>)`, `UpdateViewport()`, `Destroy()`, `IsInitialized()`
+- [x] 4.2 Implement `Init()`: `SetWindowSubclass(hSci)` + `SetWindowPos(SWP_FRAMECHANGED)` to trigger `WM_NCCALCSIZE`
+- [x] 4.3 `WM_NCCALCSIZE`: subtract `OVERVIEW_PANEL_WIDTH` from right edge before calling `DefSubclassProc`
+- [x] 4.4 `WM_NCPAINT`: double-buffered off-screen paint via `GetWindowDC`, `BitBlt` to panel strip
+- [x] 4.5 `WM_NCHITTEST`: return `HTBORDER` when cursor is inside panel strip
+- [x] 4.6 `WM_NCLBUTTONDOWN` (HTBORDER): store `m_pendingNavLine`, `SetTimer(10ms)`
+- [x] 4.7 `WM_TIMER`: call `DoNavigation()` — `SCI_SETFIRSTVISIBLELINE` + `SCI_SETEMPTYSELECTION` + re-anchor scroll
+- [x] 4.8 `WM_SETCURSOR`: show `IDC_ARROW` when hovering panel strip
+- [x] 4.9 `WM_NCDESTROY`: `RemoveWindowSubclass`, clear `m_hSci`
+- [x] 4.10 `DrawPanel()`: background fill, adaptive mark height, merge-on-overlap logic, viewport box with fill + border
 
-## 5. Integrate into Plugin.cpp
+## 5. Adaptive mark height and merge logic
 
-- [x] 5.1 Add `#include "OverviewPanel.h"` and declare `static OverviewPanel g_overviewPanel`
-- [x] 5.2 In `beNotified()`, handle `NPPN_READY`: call `g_overviewPanel.Init(g_nppData._nppHandle, g_hInstance)`
-- [x] 5.3 In `ParseLog()`: after `ApplyHighlights()`, call `g_overviewPanel.Update(hSci, BuildPanelMarks(...))`
-- [x] 5.4 In `beNotified()` `SCN_MODIFIED` handler: after `ApplyHighlights()`, call `g_overviewPanel.Update(hSci, BuildPanelMarks(...))`
-- [x] 5.5 In `beNotified()`, handle `SCN_UPDATEUI`: call `g_overviewPanel.UpdateViewport()`
-- [x] 5.6 Store `HINSTANCE` from `DllMain` in a global for use in `Init()`
+- [x] 5.1 `markH_base = max(OVERVIEW_MARK_MIN_H, panelH / totalLines)`
+- [x] 5.2 `adaptive = panelH * 0.5 / numMarks` — cap total mark coverage at 50% of panel height
+- [x] 5.3 `markH = max(1, min(markH_base, adaptive))`
+- [x] 5.4 Merge condition: `y < mergeBot` (truly overlapping only, no 2px tolerance)
 
-## 6. Verify
+## 6. Mark colors from rule configuration
 
-- [ ] 6.1 Build Release x64 — zero errors and warnings
-- [ ] 6.2 Panel appears docked on right side on Notepad++ startup
-- [ ] 6.3 Red marks appear for `[ ERROR ]` matches after Ctrl+Alt+Q
-- [ ] 6.4 Viewport box moves correctly when scrolling the editor
-- [ ] 6.5 Double-click on a mark navigates to the correct line, centered in viewport
-- [ ] 6.6 Panel marks update in real time when typing `[ ERROR ]`
-- [ ] 6.7 `[ DEBUG ]` produces no panel mark (showInPanel=false) but still colors in editor
+- [x] 6.1 `BuildPanelMarks()`: LOG_TYPE marks use `rule.textColor`; STEP_TYPE use `rule.bgColor`
+- [x] 6.2 No BGR↔RGB swap (`MAKE_BGR(r,g,b) == RGB(r,g,b)`)
+
+## 7. Viewport indicator box
+
+- [x] 7.1 Fill with `OVERVIEW_VIEWPORT_BG_COLOR` (`CLR_NONE` → `GetSysColor(COLOR_SCROLLBAR)`)
+- [x] 7.2 Border with `OVERVIEW_VIEWPORT_COLOR`
+- [x] 7.3 Cache `SCI_LINESONSCREEN` result as `m_visibleLines` during `WM_NCPAINT`; use cached value in `DoNavigation()`
+
+## 8. Parser: line-by-line with progress callback
+
+- [x] 8.1 Change `progressFn` signature to `std::function<bool(int cur, int total)>`
+- [x] 8.2 Copy Scintilla buffer to `std::vector<char>` before scanning (safe during `PeekMessage`)
+- [x] 8.3 Implement `find_range(hay, hayEnd, needle, len)` for bounded keyword search
+- [x] 8.4 Scan line-by-line: LOG_TYPE (all occurrences per line) + STEP_TYPE (prefix+digits+space|EOL)
+- [x] 8.5 Call `progressFn(lineNo, totalLines)` every 500 lines and on final line; return `{}` on cancel
+
+## 9. Progress dialog (ProgressDialog.h / ProgressDialog.cpp)
+
+- [x] 9.1 `CreateProgressDialog(hParent, hInst)`: modeless `WS_POPUP | WS_CAPTION | WS_SYSMENU` window, fixed size via `WM_GETMINMAXINFO`
+- [x] 9.2 Static text label + Cancel button; `DlgState` in `GWLP_USERDATA`
+- [x] 9.3 `WM_COMMAND` (Cancel / IDCANCEL) + `WM_CLOSE` → set `cancelled = true`
+- [x] 9.4 `SetProgressLine(hDlg, cur, total)`: update label to `"Processing: X / Y lines"`
+- [x] 9.5 `IsProgressCancelled(hDlg)`: read `DlgState::cancelled`
+
+## 10. Integrate into Plugin.cpp
+
+- [x] 10.1 `g_parseInProgress` re-entrancy guard in `ParseLog()`
+- [x] 10.2 `EnableWindow(hNpp, FALSE)` during parse; restore + `SetForegroundWindow` after
+- [x] 10.3 Pass progress lambda to `ParseDocument()`; lambda calls `SetProgressLine`, `PeekMessage` loop, checks `IsProgressCancelled`
+- [x] 10.4 On cancel: `ClearAllHighlights`, `g_overviewPanel.Update({})`, `g_highlightActive = false`
+- [x] 10.5 On success: `ClearAllHighlights` → `ApplyHighlights` (with `RDW_UPDATENOW`) → lazy `Init` → `Update`
+- [x] 10.6 `SCN_MODIFIED` handler guards `g_parseInProgress` (indirectly via `g_highlightActive`)
+
+## 11. Rename and branding
+
+- [x] 11.1 Rename `src/Highlighter.cpp` → `src/log-highlighter.cpp`, `src/Highlighter.h` → `src/log-highlighter.h`
+- [x] 11.2 Update all `#include "Highlighter.h"` references
+- [x] 11.3 Update `.vcxproj` and `.vcxproj.filters` entries
+- [x] 11.4 `getName()` returns `"log-highlighter"`
+- [x] 11.5 `PLUGIN_NAME` in `config/AboutInfo.h` → `"log-highlighter"`
+- [x] 11.6 Progress dialog title → `"log-highlighter"`
+
+## 12. Verify
+
+- [x] 12.1 Build Release x64 — zero errors and warnings
+- [x] 12.2 Panel appears on right side of Scintilla after first Ctrl+Alt+Q
+- [x] 12.3 Red marks appear for `[ ERROR ]` matches; colors match rule config
+- [x] 12.4 Viewport box moves correctly when scrolling the editor
+- [x] 12.5 Single-click on a mark navigates to the correct line, centered in viewport, caret placed
+- [x] 12.6 Panel marks update in real time when typing `[ ERROR ]`
+- [x] 12.7 `[ DEBUG ]` produces no panel mark (showInPanel=false) but still colors in editor
+- [x] 12.8 Progress dialog shows and updates on every parse
+- [x] 12.9 Cancel clears highlights and panel, leaves document in original state
+- [x] 12.10 Dense [ERROR] marks do not produce solid-color panel (adaptive height)

@@ -1,66 +1,59 @@
 ## ADDED Requirements
 
-### Requirement: Docked panel on the right side
-The plugin SHALL register a docked panel on the right side of Notepad++ using
-`NPPM_DMMREGASDCKDLG` with `DWS_DF_CONT_RIGHT`. Registration SHALL occur in
-response to the `NPPN_READY` notification.
+### Requirement: NCA panel on the right side of Scintilla
+The plugin SHALL steal 14px from the right edge of the Scintilla HWND via `WM_NCCALCSIZE` using `SetWindowSubclass`. The panel SHALL be painted via `WM_NCPAINT` using `GetWindowDC` and a double-buffered off-screen DC. The subclass SHALL be installed on the first `ParseLog()` call (lazy init) and removed on `WM_NCDESTROY`.
 
-#### Scenario: Panel appears on first launch
-- **WHEN** Notepad++ starts and loads the plugin
-- **THEN** a narrow panel appears docked on the right side of the Notepad++ window
+#### Scenario: Panel appears after first Ctrl+Alt+Q
+- **WHEN** the user presses Ctrl+Alt+Q for the first time
+- **THEN** a 14px panel appears on the right edge of the Scintilla window with colored marks
 
-#### Scenario: Panel survives resize
+#### Scenario: Panel survives editor resize
 - **WHEN** the user resizes the Notepad++ window
-- **THEN** the panel height adjusts and marks are redrawn at correct proportional positions
+- **THEN** the panel redraws at correct proportional mark positions
 
-### Requirement: Proportional colored marks
-The panel SHALL paint one colored mark per match where `showInPanel = true`.
-Mark vertical position SHALL be proportional to the match line number within
-the total document line count. Mark height SHALL be `max(OVERVIEW_MARK_MIN_H, panelH / totalLines)`.
-Consecutive marks of the same color within 2px SHALL be merged into a single taller mark.
+### Requirement: Proportional colored marks with adaptive height
+The panel SHALL paint one colored mark per match where `showInPanel = true`. Mark color SHALL come from the rule's `textColor` (LOG_TYPE) or `bgColor` (STEP_TYPE). Mark height SHALL be adaptive:
+```
+markH_base = max(1, panelH / totalLines)
+adaptive   = panelH * 0.5 / numMarks
+markH      = max(1, min(markH_base, adaptive))
+```
+Marks that truly overlap (next mark's `y < current mergeBot`) SHALL be merged. Total mark coverage SHALL not exceed 50% of panel height when marks are dense.
 
 #### Scenario: Single ERROR in document
 - **WHEN** the document has 1000 lines and one `[ ERROR ]` at line 500
 - **THEN** one red mark appears at the vertical midpoint of the panel
 
 #### Scenario: Dense ERROR cluster
-- **WHEN** multiple `[ ERROR ]` matches fall within 2px of each other on the panel
-- **THEN** they are merged into one continuous red mark
+- **WHEN** many `[ ERROR ]` matches exist across a large document
+- **THEN** marks are scaled down so the panel does not turn solid red; individual mark positions remain distinguishable
 
 #### Scenario: showInPanel false rule excluded
 - **WHEN** a `[ DEBUG ]` match exists and its `showInPanel` is `false`
 - **THEN** no mark appears in the panel for that match
 
 ### Requirement: Viewport indicator box
-The panel SHALL draw a semi-transparent rectangle indicating the currently
-visible region of the document. Position and height SHALL be computed from
-`SCI_GETFIRSTVISIBLELINE` and `SCI_LINESONSCREEN`. The box SHALL update on
-every `SCN_UPDATEUI` notification.
+The panel SHALL draw a filled rectangle with a border indicating the currently visible region. Fill color: `OVERVIEW_VIEWPORT_BG_COLOR` (`CLR_NONE` = `GetSysColor(COLOR_SCROLLBAR)`). Border color: `OVERVIEW_VIEWPORT_COLOR`. The box SHALL update on every `SCN_UPDATEUI` notification.
 
 #### Scenario: Viewport box tracks scrolling
 - **WHEN** the user scrolls the editor
 - **THEN** the viewport box moves proportionally within the panel
 
-#### Scenario: Viewport box at document start
-- **WHEN** the editor is scrolled to the top of the document
-- **THEN** the viewport box appears at the top of the panel
+### Requirement: Single-click navigation with caret placement
+A single click on the panel SHALL navigate the editor to the proportionally corresponding line. The target line SHALL be centered in the editor viewport. The caret SHALL be placed at the start of the target line with no selection.
 
-### Requirement: Double-click navigation
-A double-click on the panel SHALL navigate the editor to the line corresponding
-to the clicked vertical position. The target line SHALL be centered in the
-editor viewport using `SCI_GOTOLINE` followed by `SCI_SCROLLCARET`.
+Navigation is deferred via `SetTimer(10ms)` to run after all click messages finish. `SCI_SETFIRSTVISIBLELINE` centers the view; `SCI_SETEMPTYSELECTION` places the caret without creating a selection.
 
-#### Scenario: Double-click on a mark
-- **WHEN** the user double-clicks on a colored mark in the panel
-- **THEN** the editor scrolls so that the corresponding line is visible and centered
+#### Scenario: Click on a mark
+- **WHEN** the user clicks on a colored mark in the panel
+- **THEN** the editor scrolls so the corresponding line is centered, caret is at line start, no text is selected
 
-#### Scenario: Double-click on empty panel area
-- **WHEN** the user double-clicks on a panel area with no mark
+#### Scenario: Click on empty panel area
+- **WHEN** the user clicks on a panel area with no mark
 - **THEN** the editor navigates to the proportionally corresponding line and centers it
 
 ### Requirement: Panel updates with g_matches
-The panel SHALL refresh its marks whenever `g_matches` is updated, without
-performing any additional document scanning.
+The panel SHALL refresh its marks whenever `g_matches` is updated, without performing any additional document scanning.
 
 #### Scenario: Refresh after Ctrl+Alt+Q
 - **WHEN** the user presses Ctrl+Alt+Q
