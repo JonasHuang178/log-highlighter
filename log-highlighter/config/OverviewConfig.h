@@ -14,7 +14,7 @@
 
 // Minimum height of a colored mark in pixels (prevents marks from disappearing
 // on very large documents)
-#define OVERVIEW_MARK_MIN_H       3
+#define OVERVIEW_MARK_MIN_H       1
 
 // Background color of the overview panel
 #define OVERVIEW_BG_COLOR        RGB(60, 60, 60)

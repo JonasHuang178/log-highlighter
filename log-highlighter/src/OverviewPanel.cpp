@@ -322,9 +322,17 @@ void OverviewPanel::DrawPanel(HDC hdc, const RECT& rcDraw, int panelH)
     if (panelH <= 0 || m_totalLines <= 0) return;
 
     int panelW = rcDraw.right - rcDraw.left;
-    int markH  = std::max(OVERVIEW_MARK_MIN_H, panelH / m_totalLines);
 
-    // Draw marks with merge logic (same-color marks within 2px are merged)
+    // Adaptive mark height: scale down when marks are dense so total coverage
+    // stays below ~50% of panel height. Never smaller than 1px.
+    int markH = std::max(OVERVIEW_MARK_MIN_H, panelH / m_totalLines);
+    if (!m_marks.empty())
+    {
+        int adaptive = static_cast<int>(panelH * 0.5 / static_cast<double>(m_marks.size()));
+        markH = std::max(1, std::min(markH, adaptive));
+    }
+
+    // Draw marks with merge logic (only truly overlapping same-color marks merge)
     bool     inMark     = false;
     int      mergeTop   = 0;
     int      mergeBot   = 0;
@@ -345,7 +353,7 @@ void OverviewPanel::DrawPanel(HDC hdc, const RECT& rcDraw, int panelH)
         int y    = static_cast<int>(static_cast<double>(line) / m_totalLines * panelH);
         int yBot = std::min(y + markH, panelH);
 
-        if (inMark && mark.color == mergeColor && y <= mergeBot + 2)
+        if (inMark && mark.color == mergeColor && y < mergeBot)
             mergeBot = std::max(mergeBot, yBot);
         else
         {
