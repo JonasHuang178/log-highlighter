@@ -1,4 +1,4 @@
-#include "Highlighter.h"
+#include "log-highlighter.h"
 #include "../config/LogPatterns.h"
 #include "../external/Scintilla.h"
 
@@ -78,9 +78,6 @@ void ApplyHighlights(HWND hSci,
 {
     if (matches.empty()) return;
 
-    if (repaintAfter)
-        ::SendMessage(hSci, WM_SETREDRAW, FALSE, 0);
-
     for (const auto& m : matches)
     {
         const int idx = (m.type == MatchType::LOG_TYPE)
@@ -94,8 +91,6 @@ void ApplyHighlights(HWND hSci,
     }
 
     if (repaintAfter)
-    {
-        ::SendMessage(hSci, WM_SETREDRAW, TRUE, 0);
-        ::InvalidateRect(hSci, nullptr, TRUE);
-    }
+        ::RedrawWindow(hSci, nullptr, nullptr,
+                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
 }

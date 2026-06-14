@@ -81,8 +81,9 @@
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\Plugin.cpp" />
     <ClCompile Include="src\Parser.cpp" />
-    <ClCompile Include="src\Highlighter.cpp" />
+    <ClCompile Include="src\log-highlighter.cpp" />
     <ClCompile Include="src\OverviewPanel.cpp" />
+    <ClCompile Include="src\ProgressDialog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="external\PluginInterface.h" />
@@ -90,11 +91,12 @@
     <ClInclude Include="external\SciLexer.h" />
     <ClInclude Include="src\Plugin.h" />
     <ClInclude Include="src\Parser.h" />
-    <ClInclude Include="src\Highlighter.h" />
+    <ClInclude Include="src\log-highlighter.h" />
     <ClInclude Include="config\LogPatterns.h" />
     <ClInclude Include="config\AboutInfo.h" />
     <ClInclude Include="config\OverviewConfig.h" />
     <ClInclude Include="src\OverviewPanel.h" />
+    <ClInclude Include="src\ProgressDialog.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

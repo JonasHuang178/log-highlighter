@@ -35,10 +35,17 @@ struct Sci_TextRange {
 // ---------------------------------------------------------------------------
 #define SCI_GETLINECOUNT            2154  // → total line count in document
 #define SCI_LINEFROMPOSITION        2166  // wParam=bytePos → line number (0-based)
+#define SCI_POSITIONFROMLINE        2167  // wParam=line → byte offset at start of line
+#define SCI_GETLINEENDPOSITION      2136  // wParam=line → byte offset at end of line (excl. newline)
 #define SCI_GETFIRSTVISIBLELINE     2152  // → first visible line number
 #define SCI_LINESONSCREEN           2197  // → number of lines visible in view
 #define SCI_GOTOLINE                2024  // wParam=line → move caret to line start
 #define SCI_SCROLLCARET             2169  // ensure caret is visible (centers if needed)
+#define SCI_SETFIRSTVISIBLELINE     2613  // wParam=line → scroll so this line is first visible
+#define SCI_LINESCROLL              2300  // wParam=columns, lParam=lines → scroll relative amount
+#define SCI_SETSELECTIONSTART       2142  // wParam=pos → set anchor (does not scroll)
+#define SCI_SETSELECTIONEND         2143  // wParam=pos → set caret  (does not scroll)
+#define SCI_SETEMPTYSELECTION       2556  // wParam=pos → set anchor=caret=pos, no selection, no scroll
 
 // ---------------------------------------------------------------------------
 // Style definitions

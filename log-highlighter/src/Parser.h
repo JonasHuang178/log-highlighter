@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <vector>
+#include <functional>
 
 // ---------------------------------------------------------------------------
 //  MatchType - corresponds to the two rule types in config/LogPatterns.h
@@ -24,4 +25,9 @@ struct Match {
     intptr_t  length;
 };
 
-std::vector<Match> ParseDocument(HWND hScintilla);
+// progressFn(currentLine, totalLines) is called every 500 lines on the UI thread.
+// Return false to cancel; ParseDocument returns an empty vector on cancel.
+// Pass nullptr to parse without progress reporting.
+std::vector<Match> ParseDocument(
+    HWND                                      hScintilla,
+    std::function<bool(int, int)>             progressFn = nullptr);

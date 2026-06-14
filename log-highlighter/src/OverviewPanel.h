@@ -6,67 +6,76 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
-//  OverviewPanel
+//  OverviewPanel — Non-Client Area (NCA) approach
 //
-//  A narrow docked panel on the right side of Notepad++ that shows colored
-//  marks for log matches where showInPanel == true, plus a semi-transparent
-//  viewport indicator box showing the currently visible region of the editor.
+//  No separate HWND. The panel is drawn directly into the Scintilla window's
+//  non-client area by subclassing the Scintilla HWND.
+//
+//  Key Win32 messages intercepted:
+//    WM_NCCALCSIZE     — steal OVERVIEW_PANEL_WIDTH px from the right edge of
+//                        Scintilla's client area so text doesn't paint over us
+//    WM_NCPAINT        — draw colored marks + viewport box into the stolen strip
+//    WM_NCHITTEST      — return HTBORDER when the cursor is in our strip so
+//                        double-click generates WM_NCLBUTTONDBLCLK
+//    WM_NCLBUTTONDBLCLK — navigate editor to the clicked line
+//    WM_SETCURSOR      — show arrow cursor (not the resize cursor) in our strip
 //
 //  Lifecycle:
-//    Init()           — call once from NPPN_READY handler
-//    Update()         — call after every parse (ParseLog / SCN_MODIFIED)
-//    UpdateViewport() — call from SCN_UPDATEUI handler
-//    Destroy()        — call from DLL_PROCESS_DETACH (optional, for cleanup)
+//    Init()           — subclass Scintilla; call after first valid hSci
+//    Update()         — store marks, redraw NCA frame
+//    UpdateViewport() — redraw NCA frame (moves viewport box)
+//    Destroy()        — remove subclass, restore Scintilla's full client width
 // ---------------------------------------------------------------------------
 
 struct PanelMark {
-    int      line;      // 0-based line number in the document
-    COLORREF color;     // RGB color for the mark
+    int      line;   // 0-based line number in document
+    COLORREF color;  // RGB color for the mark (standard Windows RGB)
 };
 
 class OverviewPanel
 {
 public:
-    OverviewPanel() = default;
+    OverviewPanel()  = default;
     ~OverviewPanel() = default;
 
-    // Register window class, create HWND, dock via NPPM_DMMREGASDCKDLG
-    void Init(HWND hNpp, HINSTANCE hInst);
-
-    // Store new match marks and trigger a repaint
+    void Init(HWND hNpp, HWND hSci, HINSTANCE hInst);
     void Update(HWND hSci, const std::vector<PanelMark>& marks);
-
-    // Trigger a repaint to refresh the viewport indicator box position
     void UpdateViewport();
-
-    // Clean up resources
     void Destroy();
 
-    // Returns true after Init() succeeds
-    bool IsInitialized() const { return m_hwnd != nullptr; }
+    bool IsInitialized() const { return m_hSci != nullptr; }
 
 private:
-    // Window procedure (static trampoline → dispatches to instance method)
-    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
-    LRESULT HandleMsg(UINT msg, WPARAM wp, LPARAM lp);
+    // SetWindowSubclass callback
+    static LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg,
+        WPARAM wp, LPARAM lp,
+        UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 
-    // Paint all content into hdc (used by double-buffered WM_PAINT)
-    void OnPaint();
-    void DrawContent(HDC hdc, int panelW, int panelH);
+    // Per-message handlers
+    LRESULT OnNCCalcSize    (HWND hwnd, WPARAM wp, LPARAM lp);
+    LRESULT OnNCPaint       (HWND hwnd, WPARAM wp);
+    LRESULT OnNCHitTest     (HWND hwnd, int xScreen, int yScreen);
+    LRESULT OnNCLButtonDblClk(HWND hwnd, LPARAM lp);
+    LRESULT OnSetCursor     (HWND hwnd, LPARAM lp);
 
-    // Double-click: navigate editor to the line at pixel y
-    void OnDblClick(int y);
+    // Compute the panel rect in SCREEN coordinates from current window/client rects
+    RECT GetPanelRectScreen(HWND hwnd) const;
 
-    // Panel HWND and parent
-    HWND      m_hwnd   = nullptr;
-    HWND      m_hNpp   = nullptr;
-    HWND      m_hSci   = nullptr;  // current Scintilla handle (for navigation)
+    // Draw all panel content into hdc (in window-relative coords, rcDraw is the strip)
+    void DrawPanel(HDC hdc, const RECT& rcDraw, int panelH);
 
-    // Mark data (filtered: showInPanel == true only)
+    // Invalidate the NCA frame to trigger WM_NCPAINT
+    void InvalidateFrame() const;
+
+    HWND m_hNpp = nullptr;
+    HWND m_hSci = nullptr;   // the subclassed Scintilla HWND
+
+    void DoNavigation();  // deferred navigation called via WM_TIMER
+
     std::vector<PanelMark> m_marks;
-
-    // Cached document total line count (updated in Update())
-    int m_totalLines = 1;
+    int m_totalLines    = 1;
+    int m_visibleLines  = 30;  // cached from DrawPanel
+    int m_pendingNavLine = -1; // set before PostMessage, consumed in DoNavigation
 };
 
 #endif // OVERVIEW_PANEL_H

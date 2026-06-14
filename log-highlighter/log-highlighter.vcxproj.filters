@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-
   <!-- Filter (folder) definitions -->
   <ItemGroup>
     <Filter Include="external">
@@ -13,7 +12,6 @@
       <UniqueIdentifier>{B1000003-0000-0000-0000-000000000003}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
-
   <!-- Source files (.cpp) -->
   <ItemGroup>
     <ClCompile Include="src\dllmain.cpp">
@@ -25,14 +23,16 @@
     <ClCompile Include="src\Parser.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="src\Highlighter.cpp">
+    <ClCompile Include="src\log-highlighter.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="src\OverviewPanel.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\ProgressDialog.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
-
   <!-- Header files (.h) -->
   <ItemGroup>
     <ClInclude Include="external\PluginInterface.h">
@@ -59,12 +59,14 @@
     <ClInclude Include="src\Parser.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="src\Highlighter.h">
+    <ClInclude Include="src\log-highlighter.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\OverviewPanel.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="src\ProgressDialog.h">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
-
 </Project>
