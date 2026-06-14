@@ -34,9 +34,6 @@ static const LogTypeRule LOG_TYPE_RULES[] = {
     { "[ ERROR ]",  MAKE_BGR(220,   0,   0),   true  },  // red     — shown in panel
     { "[ WARN ]",   MAKE_BGR(200, 160,   0),   false },  // golden yellow
     { "[ DEBUG ]",  MAKE_BGR( 70, 150, 255),   false },  // cornflower blue
-    //{ "[  ERROR  ]",  MAKE_BGR(220,   0,   0),   true  },  // red     — shown in panel
-    //{ "[ WARNING ]",   MAKE_BGR(200, 160,   0),   false },  // golden yellow
-    //{ "[  MSG    ]",  MAKE_BGR( 70, 150, 255),   false },  // cornflower blue
 };
 
 
