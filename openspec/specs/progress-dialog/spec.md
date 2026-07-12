@@ -17,7 +17,7 @@ The Notepad++ main window SHALL be disabled (`EnableWindow(FALSE)`) for the dura
 Clicking Cancel (or closing the progress window via the X button) SHALL set a cancellation flag. `ParseDocument` SHALL return an empty vector on the next 500-line callback check. After cancellation:
 - All highlights SHALL be cleared (`ClearAllHighlights`)
 - The Overview Panel SHALL be cleared (no marks)
-- `g_highlightActive` SHALL be set to `false`
+- The current buffer's `highlightActive` (`BufferState::highlightActive`) SHALL be set to `false`
 - The document SHALL remain in its original unmodified state
 
 #### Scenario: User cancels mid-parse

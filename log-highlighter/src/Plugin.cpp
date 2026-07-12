@@ -8,6 +8,7 @@
 #include "../external/Scintilla.h"
 #include <tchar.h>
 #include <vector>
+#include <unordered_map>
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -16,14 +17,20 @@ NppData g_nppData = {};
 
 static FuncItem    g_funcItems[2];   // 0 = Parse Log, 1 = About
 static ShortcutKey g_parseLogKey;
-static std::vector<Match> g_matches;
 
 // The overview panel (right-side docked minimap)
 static OverviewPanel g_overviewPanel;
 
-// Auto-highlight via SCN_MODIFIED is inactive until the user presses Ctrl+Alt+Q
-// at least once.  This prevents highlights from appearing on file open / load.
-static bool g_highlightActive = false;
+// Per-buffer parse state. Key = NPP buffer ID (NPPM_GETCURRENTBUFFERID).
+// Scintilla indicators are stored per-buffer by NPP already; this tracks
+// the in-memory match list and lazy-rendering cursor for each open buffer.
+struct BufferState
+{
+    std::vector<Match> matches;
+    intptr_t           appliedByteEnd  = -1;
+    bool               highlightActive = false;
+};
+static std::unordered_map<LRESULT, BufferState> g_bufferStates;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +44,15 @@ HWND GetCurrentScintilla()
                   reinterpret_cast<LPARAM>(&currentView));
     return (currentView == 0) ? g_nppData._scintillaMainHandle
                                : g_nppData._scintillaSecondHandle;
+}
+
+// Returns the BufferState for the currently active NPP buffer.
+// Default-constructs a new entry if this buffer has never been parsed.
+static BufferState& CurrentBuffer()
+{
+    LRESULT id = ::SendMessage(g_nppData._nppHandle,
+                               NPPM_GETCURRENTBUFFERID, 0, 0);
+    return g_bufferStates[id];
 }
 
 // Build PanelMark list from g_matches (only showInPanel == true rules)
@@ -97,7 +113,9 @@ static void ParseLog()
     HWND hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
     ::EnableWindow(g_nppData._nppHandle, FALSE);
 
-    g_matches = ParseDocument(hSci, [&](int cur, int total) -> bool
+    BufferState& buf = CurrentBuffer();
+
+    buf.matches = ParseDocument(hSci, [&](int cur, int total) -> bool
     {
         SetProgressLine(hDlg, cur, total);
         MSG msg;
@@ -122,20 +140,22 @@ static void ParseLog()
         ClearAllHighlights(hSci);
         if (g_overviewPanel.IsInitialized())
             g_overviewPanel.Update(hSci, {});
-        g_highlightActive = false;
+        buf.highlightActive = false;
+        buf.appliedByteEnd  = -1;
         return;
     }
 
     ClearAllHighlights(hSci);
-    ApplyHighlights(hSci, g_matches); // repaintAfter = true (default)
-    g_highlightActive = true;         // enable real-time highlighting from now on
+    ApplyHighlights(hSci, buf.matches); // repaintAfter = true (default)
+    buf.highlightActive = true;
+    buf.appliedByteEnd  = -1;
 
     // Init AFTER ApplyHighlights so SWP_FRAMECHANGED doesn't queue a WM_SIZE
     // that fires before the indicator fill reaches the screen.
     if (!g_overviewPanel.IsInitialized())
         g_overviewPanel.Init(g_nppData._nppHandle, hSci, g_hInstance);
 
-    g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
+    g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, buf.matches));
 }
 
 // ---------------------------------------------------------------------------
@@ -204,36 +224,35 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
 
     switch (code)
     {
-    case SCN_MODIFIED:
-    {
-        // SC_MOD_INSERTTEXT (0x1) and SC_MOD_DELETETEXT (0x2) are real text edits.
-        // SC_MOD_CHANGEINDICATOR (0x4000) fires when indicators are applied - not a text edit.
-        // Filtering by (INSERT|DELETE) prevents an infinite highlight->notify->highlight loop.
-        // Do nothing until the user has run Parse Log (Ctrl+Alt+Q) at least once.
-        if (!g_highlightActive)
-            break;
-
-        const int TEXT_CHANGE = SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT;
-        if (!(notification->modificationType & TEXT_CHANGE))
-            break;
-
-        HWND hSci = reinterpret_cast<HWND>(notification->nmhdr.hwndFrom);
-        if (!hSci) break;
-
-        InitStyles(hSci);                // ensure indicator styles are configured
-        g_matches = ParseDocument(hSci); // full re-parse via direct buffer pointer (fast)
-        ClearAllHighlights(hSci);
-        ApplyHighlights(hSci, g_matches, /*repaintAfter=*/false); // Scintilla repaints itself
-
-        // Update overview panel marks
-        g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
-        break;
-    }
-
     case SCN_UPDATEUI:
         // Triggered on scroll, selection change, etc. — refresh viewport indicator box.
         g_overviewPanel.UpdateViewport();
         break;
+
+    case NPPN_BUFFERACTIVATED:
+    {
+        // User switched to a different tab. Restore the Overview Panel to reflect
+        // whichever buffer is now active. No re-parse — Scintilla already holds
+        // the correct indicator state for each buffer.
+        LRESULT id = static_cast<LRESULT>(notification->nmhdr.idFrom);
+        HWND hSci  = GetCurrentScintilla();
+        if (!hSci) break;
+
+        auto it = g_bufferStates.find(id);
+        if (it != g_bufferStates.end() && it->second.highlightActive)
+            g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, it->second.matches));
+        else if (g_overviewPanel.IsInitialized())
+            g_overviewPanel.Update(hSci, {});
+        break;
+    }
+
+    case NPPN_FILEBEFORECLOSE:
+    {
+        // Buffer is about to be closed — free its match list.
+        LRESULT id = static_cast<LRESULT>(notification->nmhdr.idFrom);
+        g_bufferStates.erase(id);
+        break;
+    }
 
     default:
         break;
