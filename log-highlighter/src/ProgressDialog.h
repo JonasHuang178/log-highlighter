@@ -27,3 +27,8 @@ void SetProgressLine(HWND hDlg, int current, int total);
 
 // Returns true once the user has clicked Cancel.
 bool IsProgressCancelled(HWND hDlg);
+
+// Switches dialog to Phase 2 (applying highlights): changes label to
+// "Applying highlights..." and hides the Cancel button. Call before
+// ApplyHighlights() to give the user visual feedback that work continues.
+void SetProgressApplying(HWND hDlg);

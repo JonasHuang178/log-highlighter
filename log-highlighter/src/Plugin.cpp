@@ -128,15 +128,14 @@ static void ParseLog()
     });
 
     const bool cancelled = IsProgressCancelled(hDlg);
-    ::EnableWindow(g_nppData._nppHandle, TRUE);
-    ::SetForegroundWindow(g_nppData._nppHandle);
-    ::DestroyWindow(hDlg);
-
-    g_parseInProgress = false;
 
     if (cancelled)
     {
-        // Leave the document in its original state.
+        ::EnableWindow(g_nppData._nppHandle, TRUE);
+        ::SetForegroundWindow(g_nppData._nppHandle);
+        ::DestroyWindow(hDlg);
+        g_parseInProgress = false;
+
         ClearAllHighlights(hSci);
         if (g_overviewPanel.IsInitialized())
             g_overviewPanel.Update(hSci, {});
@@ -144,6 +143,10 @@ static void ParseLog()
         buf.appliedByteEnd  = -1;
         return;
     }
+
+    // Phase 2: applying highlights. Keep dialog open so the user sees progress.
+    g_parseInProgress = false;
+    SetProgressApplying(hDlg);
 
     ClearAllHighlights(hSci);
     ApplyHighlights(hSci, buf.matches); // repaintAfter = true (default)
@@ -156,6 +159,11 @@ static void ParseLog()
         g_overviewPanel.Init(g_nppData._nppHandle, hSci, g_hInstance);
 
     g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, buf.matches));
+
+    // Dismiss dialog only after all work is complete.
+    ::EnableWindow(g_nppData._nppHandle, TRUE);
+    ::SetForegroundWindow(g_nppData._nppHandle);
+    ::DestroyWindow(hDlg);
 }
 
 // ---------------------------------------------------------------------------
