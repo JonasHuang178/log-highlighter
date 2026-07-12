@@ -1,17 +1,21 @@
 ## ADDED Requirements
 
 ### Requirement: Progress dialog during parsing
-A modeless progress window SHALL be shown on every `ParseLog()` invocation. The window SHALL display the current and total line count and SHALL include a Cancel button. The window size SHALL be fixed (non-resizable) via `WM_GETMINMAXINFO`.
+A modeless progress window SHALL be shown on every `ParseLog()` invocation. The window SHALL display the current and total line count during parsing and SHALL include a Cancel button. The window size SHALL be fixed (non-resizable) via `WM_GETMINMAXINFO`.
 
-The Notepad++ main window SHALL be disabled (`EnableWindow(FALSE)`) for the duration of parsing to prevent re-entrant calls and menu interactions. A `g_parseInProgress` flag provides an additional re-entrancy guard.
+The Notepad++ main window SHALL be disabled (`EnableWindow(FALSE)`) for the duration of both parsing and highlight application to prevent re-entrant calls and menu interactions. A `g_parseInProgress` flag provides an additional re-entrancy guard.
 
 #### Scenario: Progress updates during parse
 - **WHEN** `ParseDocument` processes every 500 lines
 - **THEN** the progress window label updates to `"Processing: X / Y lines"`
 
-#### Scenario: Parse completes normally
+#### Scenario: Dialog transitions to applying phase
 - **WHEN** parsing finishes without cancellation
-- **THEN** the progress window is destroyed, the NPP window is re-enabled, and highlights + panel are applied
+- **THEN** the progress window label changes to `"Applying highlights..."` and the Cancel button is hidden before `ApplyHighlights` begins
+
+#### Scenario: Parse completes normally
+- **WHEN** `ApplyHighlights` finishes
+- **THEN** the progress window is destroyed, the NPP window is re-enabled, and the Overview Panel is updated
 
 ### Requirement: Cancel support
 Clicking Cancel (or closing the progress window via the X button) SHALL set a cancellation flag. `ParseDocument` SHALL return an empty vector on the next 500-line callback check. After cancellation:
@@ -19,9 +23,10 @@ Clicking Cancel (or closing the progress window via the X button) SHALL set a ca
 - The Overview Panel SHALL be cleared (no marks)
 - The current buffer's `highlightActive` (`BufferState::highlightActive`) SHALL be set to `false`
 - The document SHALL remain in its original unmodified state
+- Cancel is only available during Phase 1 (parsing); the Cancel button is hidden during Phase 2 (applying)
 
 #### Scenario: User cancels mid-parse
-- **WHEN** the user clicks Cancel while the progress dialog is visible
+- **WHEN** the user clicks Cancel while the progress dialog is visible during Phase 1
 - **THEN** parsing stops, all highlights are cleared, the panel shows no marks, and the editor is unchanged
 
 ### Requirement: Parser line-by-line with safe buffer copy
