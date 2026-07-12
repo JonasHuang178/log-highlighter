@@ -9,6 +9,7 @@
 #include <tchar.h>
 #include <vector>
 #include <unordered_map>
+#include <chrono>
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -107,6 +108,8 @@ static void ParseLog()
 
     InitStyles(hSci);
 
+    const auto t0 = std::chrono::steady_clock::now();
+
     // Show progress dialog. Disable the NPP window so menus / shortcuts
     // (including Ctrl+Alt+Q itself) cannot trigger re-entrant calls while
     // PeekMessage is running inside the parse loop.
@@ -159,6 +162,27 @@ static void ParseLog()
         g_overviewPanel.Init(g_nppData._nppHandle, hSci, g_hInstance);
 
     g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, buf.matches));
+
+    // Show elapsed time in NPP status bar (bottom-left).
+    {
+        const auto t1 = std::chrono::steady_clock::now();
+        const double elapsed = std::chrono::duration<double>(t1 - t0).count();
+        wchar_t statusBuf[64];
+        const int total_s = static_cast<int>(elapsed);
+        const int hh = total_s / 3600;
+        const int mm = (total_s % 3600) / 60;
+        const int ss = total_s % 60;
+        const int ms = static_cast<int>((elapsed - total_s) * 1000);
+        if (hh > 0)
+            ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d:%02d.%03d", hh, mm, ss, ms);
+        else if (mm > 0)
+            ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d.%03d", mm, ss, ms);
+        else
+            ::swprintf_s(statusBuf, L"log-highlighter: parsed in %.3f s", elapsed);
+        ::SendMessage(g_nppData._nppHandle, NPPM_SETSTATUSBAR,
+                      STATUSBAR_DOC_TYPE,
+                      reinterpret_cast<LPARAM>(statusBuf));
+    }
 
     // Dismiss dialog only after all work is complete.
     ::EnableWindow(g_nppData._nppHandle, TRUE);
