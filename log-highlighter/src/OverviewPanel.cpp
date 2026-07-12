@@ -248,7 +248,8 @@ LRESULT OverviewPanel::OnNCLButtonDblClk(HWND hwnd, LPARAM lp)
     int rawLine = static_cast<int>(static_cast<double>(y) / panelH * m_totalLines);
     rawLine = std::max(0, std::min(rawLine, m_totalLines - 1));
 
-    // Snap to the nearest mark (by line distance). Falls back to rawLine if no marks.
+    // Snap to the nearest mark within OVERVIEW_SNAP_RADIUS lines.
+    // Falls back to rawLine if no marks exist or all are outside the radius.
     int line = rawLine;
     if (!m_marks.empty())
     {
@@ -256,7 +257,8 @@ LRESULT OverviewPanel::OnNCLButtonDblClk(HWND hwnd, LPARAM lp)
             [rawLine](const PanelMark& a, const PanelMark& b) {
                 return std::abs(a.line - rawLine) < std::abs(b.line - rawLine);
             });
-        line = it->line;
+        if (std::abs(it->line - rawLine) <= OVERVIEW_SNAP_RADIUS)
+            line = it->line;
     }
 
     // Use SetTimer (10ms) so DoNavigation() fires after all click-message

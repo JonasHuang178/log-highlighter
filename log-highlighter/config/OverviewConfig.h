@@ -22,6 +22,11 @@
 // Border color of the viewport indicator box
 #define OVERVIEW_VIEWPORT_COLOR     RGB(130, 130, 130)
 
+// Snap-to-nearest-mark radius (unit: document lines).
+// When clicking the panel, the click snaps to the nearest mark if it is within
+// this many lines of the raw proportional click position. Set to 0 to disable snap.
+#define OVERVIEW_SNAP_RADIUS     50
+
 // Fill (background) color of the viewport indicator box.
 // CLR_NONE (0xFFFFFFFF) = use the system scrollbar track color at runtime
 // (matches the scrollbar to the left of the panel).

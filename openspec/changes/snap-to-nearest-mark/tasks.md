@@ -1,7 +1,11 @@
-## 1. Implement snap-to-nearest-mark in OnNCLButtonDblClk
+## 1. Add OVERVIEW_SNAP_RADIUS to OverviewConfig.h
 
-- [x] 1.1 In `OnNCLButtonDblClk` (OverviewPanel.cpp), after computing `rawLine` from click position, add snap logic: if `m_marks` is non-empty, use `std::min_element` to find the mark with minimum `|mark.line - rawLine|` and set `line` to that mark's line
-- [x] 1.2 If `m_marks` is empty, keep existing behavior (use `rawLine` directly)
+- [x] 1.3 Add `#define OVERVIEW_SNAP_RADIUS 50` to `config/OverviewConfig.h` with a comment explaining the unit (document lines)
+
+## 2. Update snap logic in OnNCLButtonDblClk to respect radius
+
+- [x] 2.0 (done) Compute `rawLine`, use `std::min_element` to find nearest mark
+- [x] 2.1 After finding the nearest mark, only snap if `std::abs(it->line - rawLine) <= OVERVIEW_SNAP_RADIUS`; otherwise use `rawLine` directly
 
 ## 2. Verify and test
 
