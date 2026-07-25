@@ -60,6 +60,21 @@ void OverviewPanel::Init(HWND hNpp, HWND hSci, HINSTANCE /*hInst*/)
 // ---------------------------------------------------------------------------
 void OverviewPanel::Update(HWND hSci, const std::vector<PanelMark>& marks)
 {
+    // Active Scintilla changed (user switched views) — move the subclass.
+    if (m_hSci && hSci && hSci != m_hSci)
+    {
+        ::RemoveWindowSubclass(m_hSci, SubclassProc, kSubclassId);
+        ::SetWindowPos(m_hSci, nullptr, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                       SWP_NOACTIVATE | SWP_FRAMECHANGED);
+
+        ::SetWindowSubclass(hSci, SubclassProc, kSubclassId,
+                            reinterpret_cast<DWORD_PTR>(this));
+        ::SetWindowPos(hSci, nullptr, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                       SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
     m_hSci  = hSci;
     m_marks = marks;
 
@@ -70,7 +85,11 @@ void OverviewPanel::Update(HWND hSci, const std::vector<PanelMark>& marks)
         if (m_totalLines < 1) m_totalLines = 1;
     }
 
-    InvalidateFrame();
+    // Synchronous repaint so the panel updates immediately on tab switch.
+    if (m_hSci)
+        ::RedrawWindow(m_hSci, nullptr, nullptr,
+                       RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW |
+                       RDW_NOERASE | RDW_NOCHILDREN);
 }
 
 // ---------------------------------------------------------------------------
