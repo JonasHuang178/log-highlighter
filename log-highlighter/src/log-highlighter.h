@@ -10,9 +10,17 @@ void InitStyles(HWND hScintilla);
 // Clear all Log Type and Step Type indicators across the entire document.
 void ClearAllHighlights(HWND hScintilla);
 
-// Apply the results returned by ParseDocument() to Scintilla.
-//   repaintAfter = true  -> triggered by Ctrl+Alt+Q; calls WM_SETREDRAW + InvalidateRect
-//   repaintAfter = false -> triggered by SCN_MODIFIED; lets Scintilla repaint itself
+// Apply ALL match results to Scintilla (used for SCN_MODIFIED re-highlights).
+//   repaintAfter = false -> lets Scintilla repaint itself after a text change
 void ApplyHighlights(HWND hScintilla,
                      const std::vector<Match>& matches,
                      bool repaintAfter = true);
+
+// Apply only matches whose byteOffset falls in [fromByte, toByteExclusive).
+// 'matches' must be sorted by byteOffset (as returned by ParseDocument).
+// Used for lazy/deferred viewport highlighting after Ctrl+Alt+Q.
+void ApplyHighlightsInRange(HWND hScintilla,
+                             const std::vector<Match>& matches,
+                             intptr_t fromByte,
+                             intptr_t toByteExclusive,
+                             bool repaintAfter = true);

@@ -1,6 +1,7 @@
 #include "log-highlighter.h"
 #include "../config/LogPatterns.h"
 #include "../external/Scintilla.h"
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 //  Indicator index layout
@@ -26,6 +27,12 @@ static inline LRESULT Sci(HWND h, UINT msg, WPARAM wp = 0, LPARAM lp = 0)
 {
     return ::SendMessage(h, msg, wp, lp);
 }
+
+// Scintilla message/flag constants missing from the bundled Scintilla.h.
+// Values are stable since Scintilla 2.x and will not change.
+static constexpr UINT   SCI_GETMODEVENTMASK     = 2378;
+static constexpr UINT   SCI_SETMODEVENTMASK     = 2359;
+static constexpr LRESULT SC_MOD_CHANGEINDICATOR = 0x4000;
 
 // ---------------------------------------------------------------------------
 void InitStyles(HWND hSci)
@@ -59,6 +66,9 @@ void ClearAllHighlights(HWND hSci)
     const intptr_t docLen = static_cast<intptr_t>(Sci(hSci, SCI_GETLENGTH));
     if (docLen <= 0) return;
 
+    const LRESULT origMask = Sci(hSci, SCI_GETMODEVENTMASK, 0, 0);
+    Sci(hSci, SCI_SETMODEVENTMASK, origMask & ~SC_MOD_CHANGEINDICATOR, 0);
+
     for (int i = 0; i < LOG_RULE_COUNT; ++i)
     {
         Sci(hSci, SCI_SETINDICATORCURRENT, INDIC_LOG_BASE + i);
@@ -69,6 +79,8 @@ void ClearAllHighlights(HWND hSci)
         Sci(hSci, SCI_SETINDICATORCURRENT, INDIC_STEP_BASE + i);
         Sci(hSci, SCI_INDICATORCLEARRANGE, 0, static_cast<LPARAM>(docLen));
     }
+
+    Sci(hSci, SCI_SETMODEVENTMASK, origMask, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +89,13 @@ void ApplyHighlights(HWND hSci,
                      bool repaintAfter)
 {
     if (matches.empty()) return;
+
+    // Each SCI_INDICATORFILLRANGE normally fires SCN_MODIFIED(CHANGEINDICATOR)
+    // back to NPP via a synchronous SendMessage round-trip (~120 µs per fill).
+    // For 64k+ matches that adds up to 7+ seconds. Temporarily mask out
+    // CHANGEINDICATOR so Scintilla skips the notification chain during bulk fill.
+    const LRESULT origMask = Sci(hSci, SCI_GETMODEVENTMASK, 0, 0);
+    Sci(hSci, SCI_SETMODEVENTMASK, origMask & ~SC_MOD_CHANGEINDICATOR, 0);
 
     for (const auto& m : matches)
     {
@@ -89,6 +108,43 @@ void ApplyHighlights(HWND hSci,
             static_cast<WPARAM>(m.byteOffset),
             static_cast<LPARAM>(m.length));
     }
+
+    Sci(hSci, SCI_SETMODEVENTMASK, origMask, 0);
+
+    if (repaintAfter)
+        ::RedrawWindow(hSci, nullptr, nullptr,
+                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
+}
+
+// ---------------------------------------------------------------------------
+void ApplyHighlightsInRange(HWND hSci,
+                             const std::vector<Match>& matches,
+                             intptr_t fromByte,
+                             intptr_t toByteExclusive,
+                             bool repaintAfter)
+{
+    if (matches.empty() || toByteExclusive <= fromByte) return;
+
+    // Binary search for the first match in range (matches are sorted by byteOffset).
+    auto it = std::lower_bound(matches.begin(), matches.end(), fromByte,
+        [](const Match& m, intptr_t v) { return m.byteOffset < v; });
+    if (it == matches.end() || it->byteOffset >= toByteExclusive) return;
+
+    const LRESULT origMask = Sci(hSci, SCI_GETMODEVENTMASK, 0, 0);
+    Sci(hSci, SCI_SETMODEVENTMASK, origMask & ~SC_MOD_CHANGEINDICATOR, 0);
+
+    for (; it != matches.end() && it->byteOffset < toByteExclusive; ++it)
+    {
+        const int idx = (it->type == MatchType::LOG_TYPE)
+                      ? INDIC_LOG_BASE  + it->ruleIndex
+                      : INDIC_STEP_BASE + it->ruleIndex;
+        Sci(hSci, SCI_SETINDICATORCURRENT, idx);
+        Sci(hSci, SCI_INDICATORFILLRANGE,
+            static_cast<WPARAM>(it->byteOffset),
+            static_cast<LPARAM>(it->length));
+    }
+
+    Sci(hSci, SCI_SETMODEVENTMASK, origMask, 0);
 
     if (repaintAfter)
         ::RedrawWindow(hSci, nullptr, nullptr,
