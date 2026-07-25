@@ -119,9 +119,9 @@ enum NppMsg : UINT {
 // Source: Notepad_plus_msgs.h
 // ---------------------------------------------------------------------------
 static constexpr UINT NPPN_FIRST           = 1000;
-static constexpr UINT NPPN_READY           = NPPN_FIRST + 1;  // NPP fully initialized
-static constexpr UINT NPPN_FILEBEFORECLOSE = NPPN_FIRST + 6;  // buffer about to close
-static constexpr UINT NPPN_BUFFERACTIVATED = NPPN_FIRST + 13; // tab switch completed
+static constexpr UINT NPPN_READY           = NPPN_FIRST + 1;   // 1001
+static constexpr UINT NPPN_FILEBEFORECLOSE = NPPN_FIRST + 3;   // 1003
+static constexpr UINT NPPN_BUFFERACTIVATED = NPPN_FIRST + 10;  // 1010
 
 // Status bar panel indices
 enum StatusBarSection : WPARAM {
