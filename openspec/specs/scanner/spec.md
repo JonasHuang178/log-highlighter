@@ -60,22 +60,17 @@ Matches in the returned vector are **sorted by `byteOffset`** (ascending), becau
 
 ---
 
-### Requirement: Two ParseDocument overloads
+### Requirement: Single ParseDocument entry point
+`ParseDocument` SHALL expose exactly one overload, taking `HWND hScintilla` and an optional progress callback. It SHALL be called on the UI thread only, and SHALL:
+1. Call `SCI_GETLENGTH` and `SCI_GETCHARACTERPOINTER` to get the buffer pointer and length.
+2. Copy the buffer into a local `std::vector<char>`.
+3. Call `SCI_GETLINECOUNT`.
+4. Call `ScanBuffer` on the local copy.
 
-**UI-thread overload** — takes `HWND hScintilla`:
-1. Calls `SCI_GETLENGTH` and `SCI_GETCHARACTERPOINTER` to get buffer pointer and length.
-2. Copies the buffer into a local `std::vector<char>`.
-3. Calls `SCI_GETLINECOUNT`.
-4. Calls `ScanBuffer` on the local copy.
+The local copy is what makes the scan safe while the progress callback pumps messages: the pointer returned by `SCI_GETCHARACTERPOINTER` can be invalidated by a document edit, the copy cannot.
 
-Used by the `SCN_MODIFIED` real-time re-highlight path (small/moderate files, UI thread only).
+`ScanBuffer` itself remains `static`, makes no Win32 or Scintilla calls, and is therefore thread-agnostic — but it is not exposed outside `Parser.cpp`.
 
-**Worker-thread overload** — takes `const std::vector<char>& docBuf` and `int totalLines`:
-1. Calls `ScanBuffer` directly on the pre-snapshotted buffer.
-2. Never calls `SendMessage` to Scintilla.
-
-Used by the large-file path where the buffer is snapshotted on the UI thread before the worker thread starts.
-
-#### Scenario: Thread safety
-- **WHEN** the worker thread calls `ParseDocument(docBuf, totalLines, progressFn)`
-- **THEN** no Scintilla or NPP API calls are made from the worker thread
+#### Scenario: Buffer stays valid across a callback
+- **WHEN** the progress callback pumps messages and the user edits the document mid-scan
+- **THEN** the scan continues on the local copy without crashing; results are for the pre-edit snapshot

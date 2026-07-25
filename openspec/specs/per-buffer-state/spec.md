@@ -5,7 +5,6 @@ The plugin SHALL maintain a `std::unordered_map<LRESULT, BufferState>` named `g_
 
 `BufferState` SHALL contain:
 - `std::vector<Match> matches` — parse results for this buffer
-- `intptr_t appliedByteEnd = -1` — lazy rendering cursor for this buffer
 - `bool highlightActive = false` — whether this buffer has been parsed at least once
 
 #### Scenario: New buffer default state
