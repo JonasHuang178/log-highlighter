@@ -193,14 +193,3 @@ std::vector<Match> ParseDocument(HWND                          hScintilla,
     return ScanBuffer(localBuf.data(), static_cast<size_t>(docLen),
                       totalLines, std::move(progressFn));
 }
-
-// ---------------------------------------------------------------------------
-//  ParseDocument — scan a pre-snapshotted buffer (worker-thread safe).
-// ---------------------------------------------------------------------------
-std::vector<Match> ParseDocument(const std::vector<char>&       docBuf,
-                                  int                            totalLines,
-                                  std::function<bool(int, int)>  progressFn)
-{
-    return ScanBuffer(docBuf.data(), docBuf.size(),
-                      totalLines, std::move(progressFn));
-}
