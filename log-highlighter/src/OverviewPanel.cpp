@@ -419,30 +419,39 @@ void OverviewPanel::DrawPanel(HDC hdc, const RECT& rcDraw, int panelH)
         if (visible < 1) visible = 1;
         m_visibleLines = visible;  // cache for use in OnDblClick
 
-        int boxTop = trackTop + static_cast<int>(static_cast<double>(first)           / m_totalLines * trackH);
-        int boxBot = trackTop + static_cast<int>(static_cast<double>(first + visible) / m_totalLines * trackH);
-        boxTop = std::max(trackTop, boxTop);
-        boxBot = std::min(trackBot, std::max(boxTop + 2, boxBot));
+        if (OVERVIEW_VIEWPORT_BORDER_VISIBLE)
+        {
+            int boxTop = trackTop + static_cast<int>(static_cast<double>(first)           / m_totalLines * trackH);
+            int boxBot = trackTop + static_cast<int>(static_cast<double>(first + visible) / m_totalLines * trackH);
+            boxTop = std::max(trackTop, boxTop);
+            boxBot = std::min(trackBot, std::max(boxTop + 2, boxBot));
 
-        // Fill viewport box background
-        COLORREF vpBgColor = (OVERVIEW_VIEWPORT_BG_COLOR == CLR_NONE)
-            ? ::GetSysColor(COLOR_SCROLLBAR)
-            : static_cast<COLORREF>(OVERVIEW_VIEWPORT_BG_COLOR);
-        HBRUSH hFillBr = ::CreateSolidBrush(vpBgColor);
-        RECT   rcVp    = { 0, boxTop, panelW, boxBot };
-        ::FillRect(hdc, &rcVp, hFillBr);
-        ::DeleteObject(hFillBr);
+            // Clip to track region so thick borders don't bleed into arrow zones
+            int savedDC = ::SaveDC(hdc);
+            ::IntersectClipRect(hdc, 0, trackTop, panelW, trackBot);
 
-        // Draw viewport box border
-        HPEN   hPen    = ::CreatePen(PS_SOLID, 1, OVERVIEW_VIEWPORT_COLOR);
-        HPEN   hOldPen = static_cast<HPEN>(::SelectObject(hdc, hPen));
-        HBRUSH hNullBr = static_cast<HBRUSH>(::GetStockObject(NULL_BRUSH));
-        HBRUSH hOldBr  = static_cast<HBRUSH>(::SelectObject(hdc, hNullBr));
+            // Fill viewport box background
+            COLORREF vpBgColor = (OVERVIEW_VIEWPORT_BG_COLOR == CLR_NONE)
+                ? ::GetSysColor(COLOR_SCROLLBAR)
+                : static_cast<COLORREF>(OVERVIEW_VIEWPORT_BG_COLOR);
+            HBRUSH hFillBr = ::CreateSolidBrush(vpBgColor);
+            RECT   rcVp    = { 0, boxTop, panelW, boxBot };
+            ::FillRect(hdc, &rcVp, hFillBr);
+            ::DeleteObject(hFillBr);
 
-        ::Rectangle(hdc, 0, boxTop, panelW - 1, boxBot);
+            // Draw viewport box border
+            HPEN   hPen    = ::CreatePen(PS_SOLID, OVERVIEW_VIEWPORT_BORDER_WIDTH, OVERVIEW_VIEWPORT_COLOR);
+            HPEN   hOldPen = static_cast<HPEN>(::SelectObject(hdc, hPen));
+            HBRUSH hNullBr = static_cast<HBRUSH>(::GetStockObject(NULL_BRUSH));
+            HBRUSH hOldBr  = static_cast<HBRUSH>(::SelectObject(hdc, hNullBr));
 
-        ::SelectObject(hdc, hOldPen);
-        ::SelectObject(hdc, hOldBr);
-        ::DeleteObject(hPen);
+            ::Rectangle(hdc, 0, boxTop, panelW - 1, boxBot);
+
+            ::SelectObject(hdc, hOldPen);
+            ::SelectObject(hdc, hOldBr);
+            ::DeleteObject(hPen);
+
+            ::RestoreDC(hdc, savedDC);
+        }
     }
 }
