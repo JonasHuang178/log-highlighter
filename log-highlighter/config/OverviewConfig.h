@@ -19,8 +19,14 @@
 // Background color of the overview panel
 #define OVERVIEW_BG_COLOR        RGB(60, 60, 60)
 
-// Border color of the viewport indicator box
+// Show the viewport indicator box border (true = visible, false = hidden)
+#define OVERVIEW_VIEWPORT_BORDER_VISIBLE  true
+
+// Border color of the viewport indicator box (the rectangle showing the visible region)
 #define OVERVIEW_VIEWPORT_COLOR     RGB(130, 130, 130)
+
+// Border pen width of the viewport indicator box (in pixels)
+#define OVERVIEW_VIEWPORT_BORDER_WIDTH  1
 
 // Snap-to-nearest-mark radius (unit: document lines).
 // When clicking the panel, the click snaps to the nearest mark if it is within

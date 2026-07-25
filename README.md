@@ -35,7 +35,7 @@ A fixed-width strip rendered inside the Scintilla editor's non-client area (righ
 It shows a proportional minimap of the entire document:
 
 - Colored tick marks for every match where `showInPanel = true` in `LogPatterns.h`
-- A blue rectangle tracking the current viewport position
+- A viewport indicator box tracking the current viewport position (configurable color, border width, and visibility via `OverviewConfig.h`)
 - **Click** anywhere on the panel to jump to that position in the document
 
 Clicks snap to the nearest mark within `OVERVIEW_SNAP_RADIUS` lines (default 50,
@@ -124,7 +124,8 @@ status bar. Phase 2 cannot be cancelled — it blocks until every match is fille
 
 ## Customization
 
-Edit **`config/LogPatterns.h`** and rebuild. No other files need to change.
+Edit **`config/LogPatterns.h`** (keywords, colors) or **`config/OverviewConfig.h`** (panel
+appearance) and rebuild. No other files need to change.
 
 ### Add a Log Type keyword
 
@@ -164,6 +165,21 @@ Fields:
 
 Match rule: `<prefix>` + one or more digits + (space or end-of-line).
 The highlighted range runs from the start of the prefix to the end of the line.
+
+### Overview Panel appearance
+
+Edit **`config/OverviewConfig.h`** and rebuild.
+
+| Constant | Default | Description |
+|---|---|---|
+| `OVERVIEW_PANEL_WIDTH` | `14` | Panel strip width in pixels |
+| `OVERVIEW_MARK_MIN_H` | `1` | Minimum mark height in pixels |
+| `OVERVIEW_BG_COLOR` | `RGB(60, 60, 60)` | Panel background color |
+| `OVERVIEW_SNAP_RADIUS` | `50` | Click snap radius in document lines (0 = disable) |
+| `OVERVIEW_VIEWPORT_BORDER_VISIBLE` | `true` | Show the viewport indicator box (`false` = hidden entirely) |
+| `OVERVIEW_VIEWPORT_COLOR` | `RGB(130, 130, 130)` | Viewport box border color |
+| `OVERVIEW_VIEWPORT_BORDER_WIDTH` | `1` | Viewport box border pen width in pixels |
+| `OVERVIEW_VIEWPORT_BG_COLOR` | `CLR_NONE` | Viewport box fill color (`CLR_NONE` = system scrollbar color) |
 
 ### Color macro
 
