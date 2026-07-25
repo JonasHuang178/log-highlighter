@@ -263,8 +263,13 @@ LRESULT OverviewPanel::OnNCLButtonDblClk(HWND hwnd, LPARAM lp)
     int  panelH  = rcPanel.bottom - rcPanel.top;
     if (panelH <= 0) return 0;
 
-    int y       = GET_Y_LPARAM(lp) - rcPanel.top;
-    int rawLine = static_cast<int>(static_cast<double>(y) / panelH * m_totalLines);
+    int arrowH   = ::GetSystemMetrics(SM_CYVSCROLL);
+    int trackTop = arrowH;
+    int trackH   = panelH - 2 * arrowH;
+    if (trackH < 1) trackH = 1;
+
+    int y       = GET_Y_LPARAM(lp) - rcPanel.top - trackTop;
+    int rawLine = static_cast<int>(static_cast<double>(y) / trackH * m_totalLines);
     rawLine = std::max(0, std::min(rawLine, m_totalLines - 1));
 
     // Snap to the nearest mark within OVERVIEW_SNAP_RADIUS lines.
@@ -355,12 +360,20 @@ void OverviewPanel::DrawPanel(HDC hdc, const RECT& rcDraw, int panelH)
 
     int panelW = rcDraw.right - rcDraw.left;
 
+    // Inset the effective drawing area to align with the scrollbar track
+    // (between the up-arrow and down-arrow buttons).
+    int arrowH   = ::GetSystemMetrics(SM_CYVSCROLL);
+    int trackTop = arrowH;
+    int trackBot = panelH - arrowH;
+    int trackH   = trackBot - trackTop;
+    if (trackH < 1) trackH = 1;
+
     // Adaptive mark height: scale down when marks are dense so total coverage
-    // stays below ~50% of panel height. Never smaller than 1px.
-    int markH = std::max(OVERVIEW_MARK_MIN_H, panelH / m_totalLines);
+    // stays below ~50% of track height. Never smaller than 1px.
+    int markH = std::max(OVERVIEW_MARK_MIN_H, trackH / m_totalLines);
     if (!m_marks.empty())
     {
-        int adaptive = static_cast<int>(panelH * 0.5 / static_cast<double>(m_marks.size()));
+        int adaptive = static_cast<int>(trackH * 0.5 / static_cast<double>(m_marks.size()));
         markH = std::max(1, std::min(markH, adaptive));
     }
 
@@ -382,8 +395,8 @@ void OverviewPanel::DrawPanel(HDC hdc, const RECT& rcDraw, int panelH)
     for (const auto& mark : m_marks)
     {
         int line = std::max(0, std::min(mark.line, m_totalLines - 1));
-        int y    = static_cast<int>(static_cast<double>(line) / m_totalLines * panelH);
-        int yBot = std::min(y + markH, panelH);
+        int y    = trackTop + static_cast<int>(static_cast<double>(line) / m_totalLines * trackH);
+        int yBot = std::min(y + markH, trackBot);
 
         if (inMark && mark.color == mergeColor && y < mergeBot)
             mergeBot = std::max(mergeBot, yBot);
@@ -406,10 +419,10 @@ void OverviewPanel::DrawPanel(HDC hdc, const RECT& rcDraw, int panelH)
         if (visible < 1) visible = 1;
         m_visibleLines = visible;  // cache for use in OnDblClick
 
-        int boxTop = static_cast<int>(static_cast<double>(first)           / m_totalLines * panelH);
-        int boxBot = static_cast<int>(static_cast<double>(first + visible) / m_totalLines * panelH);
-        boxTop = std::max(0, boxTop);
-        boxBot = std::min(panelH, std::max(boxTop + 2, boxBot));
+        int boxTop = trackTop + static_cast<int>(static_cast<double>(first)           / m_totalLines * trackH);
+        int boxBot = trackTop + static_cast<int>(static_cast<double>(first + visible) / m_totalLines * trackH);
+        boxTop = std::max(trackTop, boxTop);
+        boxBot = std::min(trackBot, std::max(boxTop + 2, boxBot));
 
         // Fill viewport box background
         COLORREF vpBgColor = (OVERVIEW_VIEWPORT_BG_COLOR == CLR_NONE)
