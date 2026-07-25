@@ -8,8 +8,7 @@
 #include "../external/Scintilla.h"
 #include <tchar.h>
 #include <vector>
-#include <thread>
-#include <atomic>
+#include <unordered_map>
 #include <chrono>
 
 // ---------------------------------------------------------------------------
@@ -19,21 +18,20 @@ NppData g_nppData = {};
 
 static FuncItem    g_funcItems[2];   // 0 = Parse Log, 1 = About
 static ShortcutKey g_parseLogKey;
-static std::vector<Match> g_matches;
 
 // The overview panel (right-side docked minimap)
 static OverviewPanel g_overviewPanel;
 
-// Auto-highlight via SCN_MODIFIED is inactive until the user presses Ctrl+Alt+Q
-// at least once.  This prevents highlights from appearing on file open / load.
-static bool g_highlightActive = false;
-
-// Lazy indicator state: indicators have been applied up to (but not including)
-// this byte offset. Extended by SCN_UPDATEUI as the user scrolls.
-static intptr_t g_appliedByteEnd = -1;
-
-// How many lines ahead of the visible viewport to pre-apply indicators.
-static constexpr int APPLY_LOOKAHEAD_LINES = 1000;
+// Per-buffer parse state. Key = NPP buffer ID (NPPM_GETCURRENTBUFFERID).
+// Scintilla indicators are stored per-buffer by NPP already; this tracks
+// the in-memory match list and lazy-rendering cursor for each open buffer.
+struct BufferState
+{
+    std::vector<Match> matches;
+    intptr_t           appliedByteEnd  = -1;
+    bool               highlightActive = false;
+};
+static std::unordered_map<LRESULT, BufferState> g_bufferStates;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,6 +45,15 @@ HWND GetCurrentScintilla()
                   reinterpret_cast<LPARAM>(&currentView));
     return (currentView == 0) ? g_nppData._scintillaMainHandle
                                : g_nppData._scintillaSecondHandle;
+}
+
+// Returns the BufferState for the currently active NPP buffer.
+// Default-constructs a new entry if this buffer has never been parsed.
+static BufferState& CurrentBuffer()
+{
+    LRESULT id = ::SendMessage(g_nppData._nppHandle,
+                               NPPM_GETCURRENTBUFFERID, 0, 0);
+    return g_bufferStates[id];
 }
 
 // Build PanelMark list from g_matches (only showInPanel == true rules)
@@ -87,21 +94,6 @@ static std::vector<PanelMark> BuildPanelMarks(HWND hSci,
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for lazy indicator application
-// ---------------------------------------------------------------------------
-
-// Returns the byte position at the end of (firstVisibleLine + linesOnScreen
-// + APPLY_LOOKAHEAD_LINES), clamped to the last line in the document.
-static intptr_t GetLookaheadByteEnd(HWND hSci)
-{
-    const int firstLine    = static_cast<int>(::SendMessage(hSci, SCI_GETFIRSTVISIBLELINE, 0, 0));
-    const int linesOnScr   = static_cast<int>(::SendMessage(hSci, SCI_LINESONSCREEN, 0, 0));
-    const int totalLines   = static_cast<int>(::SendMessage(hSci, SCI_GETLINECOUNT, 0, 0));
-    const int endLine      = min(firstLine + linesOnScr + APPLY_LOOKAHEAD_LINES, totalLines - 1);
-    return static_cast<intptr_t>(::SendMessage(hSci, SCI_GETLINEENDPOSITION, endLine, 0));
-}
-
-// ---------------------------------------------------------------------------
 // Command: Parse Log  (Ctrl+Alt+Q)
 // ---------------------------------------------------------------------------
 static bool g_parseInProgress = false;  // re-entrancy guard
@@ -118,138 +110,84 @@ static void ParseLog()
 
     const auto t0 = std::chrono::steady_clock::now();
 
-    const int totalLines = static_cast<int>(
-        ::SendMessage(hSci, SCI_GETLINECOUNT, 0, 0));
+    // Show progress dialog. Disable the NPP window so menus / shortcuts
+    // (including Ctrl+Alt+Q itself) cannot trigger re-entrant calls while
+    // PeekMessage is running inside the parse loop.
+    HWND hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
+    ::EnableWindow(g_nppData._nppHandle, FALSE);
 
-    // Only show a progress dialog for large files. For small files the parse
-    // completes in microseconds — showing and immediately destroying a dialog
-    // just produces an annoying flash with no useful information.
-    static constexpr int PROGRESS_MIN_LINES = 5000;
-    const bool showProgress = (totalLines >= PROGRESS_MIN_LINES);
+    BufferState& buf = CurrentBuffer();
 
-    HWND hDlg = nullptr;
-    bool cancelled = false;
-
-    if (showProgress)
+    buf.matches = ParseDocument(hSci, [&](int cur, int total) -> bool
     {
-        // Snapshot the Scintilla buffer on the UI thread before creating any
-        // other windows, so all three Scintilla calls are atomic (nothing can
-        // be dispatched between them).
-        const intptr_t docLen = static_cast<intptr_t>(
-            ::SendMessage(hSci, SCI_GETLENGTH, 0, 0));
-        const char* rawPtr = reinterpret_cast<const char*>(
-            ::SendMessage(hSci, SCI_GETCHARACTERPOINTER, 0, 0));
-        std::vector<char> docBuf(rawPtr, rawPtr + docLen);
-
-        hDlg = CreateProgressDialog(g_nppData._nppHandle, g_hInstance);
-        SetProgressLine(hDlg, 0, totalLines);
-        ::UpdateWindow(hDlg);
-        ::EnableWindow(g_nppData._nppHandle, FALSE);
-        ::SetForegroundWindow(hDlg);
-
-        // Parse on a worker thread so the UI thread stays in its message loop
-        // and the progress dialog remains alive and responsive throughout.
-        // The worker only reads docBuf — it never calls SendMessage to Scintilla.
-        std::vector<Match> workerMatches;
-        std::atomic<bool>  workerCancelled { false };
-        HANDLE hDone = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-
-        std::thread worker([&]() {
-            // Parse the pre-snapshotted buffer — never touches Scintilla.
-            workerMatches = ParseDocument(docBuf, totalLines,
-                [&](int cur, int total) -> bool {
-                    ::PostMessage(hDlg, WM_APP, static_cast<WPARAM>(cur),
-                                  static_cast<LPARAM>(total));
-                    return !workerCancelled.load();
-                });
-            ::SetEvent(hDone);
-        });
-
-        // UI thread message loop — keeps dialog painted and Cancel responsive.
+        SetProgressLine(hDlg, cur, total);
         MSG msg;
-        while (::MsgWaitForMultipleObjects(1, &hDone, FALSE, INFINITE, QS_ALLINPUT)
-               != WAIT_OBJECT_0)
-        {
-            while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
-            {
-                if (msg.hwnd == hDlg && msg.message == WM_APP)
-                    SetProgressLine(hDlg,
-                                    static_cast<int>(msg.wParam),
-                                    static_cast<int>(msg.lParam));
-                else
-                {
-                    ::TranslateMessage(&msg);
-                    ::DispatchMessage(&msg);
-                }
-                if (IsProgressCancelled(hDlg))
-                    workerCancelled.store(true);
-            }
-        }
         while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
         }
+        return !IsProgressCancelled(hDlg);
+    });
 
-        worker.join();
-        ::CloseHandle(hDone);
-
-        cancelled = IsProgressCancelled(hDlg) || workerCancelled.load();
-        g_matches = std::move(workerMatches);
-
-        ::EnableWindow(g_nppData._nppHandle, TRUE);
-        ::SetForegroundWindow(g_nppData._nppHandle);
-        ::DestroyWindow(hDlg);
-    }
-    else
-    {
-        g_matches = ParseDocument(hSci);
-    }
-
-    g_parseInProgress = false;
+    const bool cancelled = IsProgressCancelled(hDlg);
 
     if (cancelled)
     {
-        // Leave the document in its original state.
+        ::EnableWindow(g_nppData._nppHandle, TRUE);
+        ::SetForegroundWindow(g_nppData._nppHandle);
+        ::DestroyWindow(hDlg);
+        g_parseInProgress = false;
+
         ClearAllHighlights(hSci);
-        g_appliedByteEnd = -1;
         if (g_overviewPanel.IsInitialized())
             g_overviewPanel.Update(hSci, {});
-        g_highlightActive = false;
+        buf.highlightActive = false;
+        buf.appliedByteEnd  = -1;
         return;
     }
 
+    // Phase 2: applying highlights. Keep dialog open so the user sees progress.
+    g_parseInProgress = false;
+    SetProgressApplying(hDlg);
+
     ClearAllHighlights(hSci);
-    g_appliedByteEnd = -1;
+    ApplyHighlights(hSci, buf.matches); // repaintAfter = true (default)
+    buf.highlightActive = true;
+    buf.appliedByteEnd  = -1;
 
-    // Apply only the visible viewport + lookahead. The rest is deferred to
-    // SCN_UPDATEUI so Ctrl+Alt+Q returns instantly regardless of file size.
-    const intptr_t applyEnd = GetLookaheadByteEnd(hSci);
-    ApplyHighlightsInRange(hSci, g_matches, 0, applyEnd + 1);
-    g_appliedByteEnd  = applyEnd;
-    g_highlightActive = true;
-
+    // Init AFTER ApplyHighlights so SWP_FRAMECHANGED doesn't queue a WM_SIZE
+    // that fires before the indicator fill reaches the screen.
     if (!g_overviewPanel.IsInitialized())
         g_overviewPanel.Init(g_nppData._nppHandle, hSci, g_hInstance);
-    g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
 
-    const auto t1 = std::chrono::steady_clock::now();
-    const double elapsed = std::chrono::duration<double>(t1 - t0).count();
-    wchar_t statusBuf[64];
-    const int total_s = static_cast<int>(elapsed);
-    const int hh = total_s / 3600;
-    const int mm = (total_s % 3600) / 60;
-    const int ss = total_s % 60;
-    const int ms = static_cast<int>((elapsed - total_s) * 1000);
-    if (hh > 0)
-        ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d:%02d.%03d", hh, mm, ss, ms);
-    else if (mm > 0)
-        ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d.%03d", mm, ss, ms);
-    else
-        ::swprintf_s(statusBuf, L"log-highlighter: parsed in %.3f s", elapsed);
-    ::SendMessage(g_nppData._nppHandle, NPPM_SETSTATUSBAR,
-                  STATUSBAR_DOC_TYPE,
-                  reinterpret_cast<LPARAM>(statusBuf));
+    g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, buf.matches));
+
+    // Show elapsed time in NPP status bar (bottom-left).
+    {
+        const auto t1 = std::chrono::steady_clock::now();
+        const double elapsed = std::chrono::duration<double>(t1 - t0).count();
+        wchar_t statusBuf[64];
+        const int total_s = static_cast<int>(elapsed);
+        const int hh = total_s / 3600;
+        const int mm = (total_s % 3600) / 60;
+        const int ss = total_s % 60;
+        const int ms = static_cast<int>((elapsed - total_s) * 1000);
+        if (hh > 0)
+            ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d:%02d.%03d", hh, mm, ss, ms);
+        else if (mm > 0)
+            ::swprintf_s(statusBuf, L"log-highlighter: parsed in %02d:%02d.%03d", mm, ss, ms);
+        else
+            ::swprintf_s(statusBuf, L"log-highlighter: parsed in %.3f s", elapsed);
+        ::SendMessage(g_nppData._nppHandle, NPPM_SETSTATUSBAR,
+                      STATUSBAR_DOC_TYPE,
+                      reinterpret_cast<LPARAM>(statusBuf));
+    }
+
+    // Dismiss dialog only after all work is complete.
+    ::EnableWindow(g_nppData._nppHandle, TRUE);
+    ::SetForegroundWindow(g_nppData._nppHandle);
+    ::DestroyWindow(hDlg);
 }
 
 // ---------------------------------------------------------------------------
@@ -318,54 +256,35 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
 
     switch (code)
     {
-    case SCN_MODIFIED:
-    {
-        // SC_MOD_INSERTTEXT (0x1) and SC_MOD_DELETETEXT (0x2) are real text edits.
-        // SC_MOD_CHANGEINDICATOR (0x4000) fires when indicators are applied - not a text edit.
-        // Filtering by (INSERT|DELETE) prevents an infinite highlight->notify->highlight loop.
-        // Do nothing until the user has run Parse Log (Ctrl+Alt+Q) at least once.
-        if (!g_highlightActive)
-            break;
-
-        const int TEXT_CHANGE = SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT;
-        if (!(notification->modificationType & TEXT_CHANGE))
-            break;
-
-        HWND hSci = reinterpret_cast<HWND>(notification->nmhdr.hwndFrom);
-        if (!hSci) break;
-
-        InitStyles(hSci);                // ensure indicator styles are configured
-        g_matches = ParseDocument(hSci); // full re-parse via direct buffer pointer (fast)
-        ClearAllHighlights(hSci);
-        ApplyHighlights(hSci, g_matches, /*repaintAfter=*/false); // Scintilla repaints itself
-        g_appliedByteEnd = static_cast<intptr_t>(::SendMessage(hSci, SCI_GETLENGTH, 0, 0));
-
-        // Update overview panel marks
-        g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, g_matches));
-        break;
-    }
-
     case SCN_UPDATEUI:
         // Triggered on scroll, selection change, etc. — refresh viewport indicator box.
         g_overviewPanel.UpdateViewport();
-
-        // Extend lazy indicator coverage to keep the viewport highlighted as user scrolls.
-        if (g_highlightActive && !g_matches.empty())
-        {
-            HWND hSci2 = reinterpret_cast<HWND>(notification->nmhdr.hwndFrom);
-            if (hSci2)
-            {
-                const intptr_t needed = GetLookaheadByteEnd(hSci2);
-                if (needed > g_appliedByteEnd)
-                {
-                    ApplyHighlightsInRange(hSci2, g_matches,
-                                           g_appliedByteEnd + 1, needed + 1,
-                                           /*repaintAfter=*/false);
-                    g_appliedByteEnd = needed;
-                }
-            }
-        }
         break;
+
+    case NPPN_BUFFERACTIVATED:
+    {
+        // User switched to a different tab. Restore the Overview Panel to reflect
+        // whichever buffer is now active. No re-parse — Scintilla already holds
+        // the correct indicator state for each buffer.
+        LRESULT id = static_cast<LRESULT>(notification->nmhdr.idFrom);
+        HWND hSci  = GetCurrentScintilla();
+        if (!hSci) break;
+
+        auto it = g_bufferStates.find(id);
+        if (it != g_bufferStates.end() && it->second.highlightActive)
+            g_overviewPanel.Update(hSci, BuildPanelMarks(hSci, it->second.matches));
+        else if (g_overviewPanel.IsInitialized())
+            g_overviewPanel.Update(hSci, {});
+        break;
+    }
+
+    case NPPN_FILEBEFORECLOSE:
+    {
+        // Buffer is about to be closed — free its match list.
+        LRESULT id = static_cast<LRESULT>(notification->nmhdr.idFrom);
+        g_bufferStates.erase(id);
+        break;
+    }
 
     default:
         break;

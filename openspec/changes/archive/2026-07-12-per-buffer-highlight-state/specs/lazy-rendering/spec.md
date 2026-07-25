@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: SCN_UPDATEUI extension
 On every `SCN_UPDATEUI` notification, if the **current buffer's** `highlightActive` is `true` and its `matches` is non-empty:

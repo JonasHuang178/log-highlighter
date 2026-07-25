@@ -244,9 +244,22 @@ LRESULT OverviewPanel::OnNCLButtonDblClk(HWND hwnd, LPARAM lp)
     int  panelH  = rcPanel.bottom - rcPanel.top;
     if (panelH <= 0) return 0;
 
-    int y    = GET_Y_LPARAM(lp) - rcPanel.top;
-    int line = static_cast<int>(static_cast<double>(y) / panelH * m_totalLines);
-    line = std::max(0, std::min(line, m_totalLines - 1));
+    int y       = GET_Y_LPARAM(lp) - rcPanel.top;
+    int rawLine = static_cast<int>(static_cast<double>(y) / panelH * m_totalLines);
+    rawLine = std::max(0, std::min(rawLine, m_totalLines - 1));
+
+    // Snap to the nearest mark within OVERVIEW_SNAP_RADIUS lines.
+    // Falls back to rawLine if no marks exist or all are outside the radius.
+    int line = rawLine;
+    if (!m_marks.empty())
+    {
+        auto it = std::min_element(m_marks.begin(), m_marks.end(),
+            [rawLine](const PanelMark& a, const PanelMark& b) {
+                return std::abs(a.line - rawLine) < std::abs(b.line - rawLine);
+            });
+        if (std::abs(it->line - rawLine) <= OVERVIEW_SNAP_RADIUS)
+            line = it->line;
+    }
 
     // Use SetTimer (10ms) so DoNavigation() fires after all click-message
     // processing is done. PostMessage to Scintilla is unsafe — Scintilla uses

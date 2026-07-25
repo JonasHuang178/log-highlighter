@@ -111,14 +111,17 @@ enum NppMsg : UINT {
     NPPM_MENUCOMMAND            = NPPMSG + 48,
     NPPM_DMMREGASDCKDLG         = NPPMSG + 33, // register a docking panel
     NPPM_GETCURRENTVIEW         = NPPMSG + 98,
+    NPPM_GETCURRENTBUFFERID     = NPPMSG + 60,
 };
 
 // ---------------------------------------------------------------------------
 // Notepad++ notification codes  (nmhdr.code in WM_NOTIFY to plugin)
 // Source: Notepad_plus_msgs.h
 // ---------------------------------------------------------------------------
-static constexpr UINT NPPN_FIRST = 1000;
-static constexpr UINT NPPN_READY = NPPN_FIRST + 1; // NPP fully initialized
+static constexpr UINT NPPN_FIRST           = 1000;
+static constexpr UINT NPPN_READY           = NPPN_FIRST + 1;  // NPP fully initialized
+static constexpr UINT NPPN_FILEBEFORECLOSE = NPPN_FIRST + 6;  // buffer about to close
+static constexpr UINT NPPN_BUFFERACTIVATED = NPPN_FIRST + 13; // tab switch completed
 
 // Status bar panel indices
 enum StatusBarSection : WPARAM {

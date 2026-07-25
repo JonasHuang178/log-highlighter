@@ -7,8 +7,9 @@ static const wchar_t      kClass[]   = L"LogHLProgressWnd";
 // Per-window state stored in GWLP_USERDATA
 struct DlgState
 {
-    HWND hwndText  = nullptr;
-    bool cancelled = false;
+    HWND hwndText   = nullptr;
+    HWND hwndCancel = nullptr;
+    bool cancelled  = false;
 };
 
 static LRESULT CALLBACK ProgressWndProc(HWND hwnd, UINT msg,
@@ -34,7 +35,7 @@ static LRESULT CALLBACK ProgressWndProc(HWND hwnd, UINT msg,
             hwnd, reinterpret_cast<HMENU>(IDC_TEXT),
             cs->hInstance, nullptr);
 
-        CreateWindowW(
+        s2->hwndCancel = CreateWindowW(
             L"BUTTON", L"Cancel",
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             110, 72, 90, 28,
@@ -125,4 +126,20 @@ bool IsProgressCancelled(HWND hDlg)
     auto* s = reinterpret_cast<DlgState*>(
         GetWindowLongPtrW(hDlg, GWLP_USERDATA));
     return s && s->cancelled;
+}
+
+void SetProgressApplying(HWND hDlg)
+{
+    if (!hDlg) return;
+    auto* s = reinterpret_cast<DlgState*>(
+        GetWindowLongPtrW(hDlg, GWLP_USERDATA));
+    if (!s) return;
+
+    if (s->hwndText)
+        SetWindowTextW(s->hwndText, L"Applying highlights...");
+    if (s->hwndCancel)
+        ShowWindow(s->hwndCancel, SW_HIDE);
+
+    // Force repaint before ApplyHighlights blocks the UI thread.
+    UpdateWindow(hDlg);
 }

@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Progress dialog during parsing
 A modeless progress window SHALL be shown on every `ParseLog()` invocation. The window SHALL display the current and total line count during parsing and SHALL include a Cancel button. The window size SHALL be fixed (non-resizable) via `WM_GETMINMAXINFO`.
@@ -11,7 +11,7 @@ The Notepad++ main window SHALL be disabled (`EnableWindow(FALSE)`) for the dura
 
 #### Scenario: Dialog transitions to applying phase
 - **WHEN** parsing finishes without cancellation
-- **THEN** the progress window label changes to `"Applying highlights..."` and the Cancel button is hidden before `ApplyHighlights` begins
+- **THEN** the progress window label changes to `"Applying highlights…"` and the Cancel button is hidden before `ApplyHighlights` begins
 
 #### Scenario: Parse completes normally
 - **WHEN** `ApplyHighlights` finishes
