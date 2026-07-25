@@ -1,7 +1,6 @@
 #include "log-highlighter.h"
 #include "../config/LogPatterns.h"
 #include "../external/Scintilla.h"
-#include <algorithm>
 
 // ---------------------------------------------------------------------------
 //  Indicator index layout
@@ -85,8 +84,7 @@ void ClearAllHighlights(HWND hSci)
 
 // ---------------------------------------------------------------------------
 void ApplyHighlights(HWND hSci,
-                     const std::vector<Match>& matches,
-                     bool repaintAfter)
+                     const std::vector<Match>& matches)
 {
     if (matches.empty()) return;
 
@@ -111,42 +109,6 @@ void ApplyHighlights(HWND hSci,
 
     Sci(hSci, SCI_SETMODEVENTMASK, origMask, 0);
 
-    if (repaintAfter)
-        ::RedrawWindow(hSci, nullptr, nullptr,
-                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
-}
-
-// ---------------------------------------------------------------------------
-void ApplyHighlightsInRange(HWND hSci,
-                             const std::vector<Match>& matches,
-                             intptr_t fromByte,
-                             intptr_t toByteExclusive,
-                             bool repaintAfter)
-{
-    if (matches.empty() || toByteExclusive <= fromByte) return;
-
-    // Binary search for the first match in range (matches are sorted by byteOffset).
-    auto it = std::lower_bound(matches.begin(), matches.end(), fromByte,
-        [](const Match& m, intptr_t v) { return m.byteOffset < v; });
-    if (it == matches.end() || it->byteOffset >= toByteExclusive) return;
-
-    const LRESULT origMask = Sci(hSci, SCI_GETMODEVENTMASK, 0, 0);
-    Sci(hSci, SCI_SETMODEVENTMASK, origMask & ~SC_MOD_CHANGEINDICATOR, 0);
-
-    for (; it != matches.end() && it->byteOffset < toByteExclusive; ++it)
-    {
-        const int idx = (it->type == MatchType::LOG_TYPE)
-                      ? INDIC_LOG_BASE  + it->ruleIndex
-                      : INDIC_STEP_BASE + it->ruleIndex;
-        Sci(hSci, SCI_SETINDICATORCURRENT, idx);
-        Sci(hSci, SCI_INDICATORFILLRANGE,
-            static_cast<WPARAM>(it->byteOffset),
-            static_cast<LPARAM>(it->length));
-    }
-
-    Sci(hSci, SCI_SETMODEVENTMASK, origMask, 0);
-
-    if (repaintAfter)
-        ::RedrawWindow(hSci, nullptr, nullptr,
-                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
+    ::RedrawWindow(hSci, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE);
 }

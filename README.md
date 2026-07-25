@@ -1,6 +1,7 @@
 # log-highlighter
 
-A Notepad++ 64-bit plugin that colorizes log keywords and step markers in real time.
+A Notepad++ 64-bit plugin that colorizes log keywords and step markers on demand
+(**Ctrl+Alt+Q**), with a clickable overview minimap of every match in the file.
 
 ---
 
@@ -37,6 +38,14 @@ It shows a proportional minimap of the entire document:
 - A blue rectangle tracking the current viewport position
 - **Click** anywhere on the panel to jump to that position in the document
 
+Clicks snap to the nearest mark within `OVERVIEW_SNAP_RADIUS` lines (default 50,
+in `config/OverviewConfig.h`), so a 1px mark in a 100 000-line file is still
+easy to hit. Outside that radius the click falls back to a plain proportional
+jump. The target line is centered in the viewport with the caret at line start.
+
+Marks are built from the in-memory match list, not from Scintilla indicators,
+so the panel always covers the whole document.
+
 ### Parse time display
 
 After each **Ctrl+Alt+Q**, the Notepad++ status bar (bottom-left, where "Normal text file" appears) shows the total parse + render time:
@@ -47,9 +56,14 @@ After each **Ctrl+Alt+Q**, the Notepad++ status bar (bottom-left, where "Normal 
 | 1 minute or more | `log-highlighter: parsed in 01:05.234` |
 | 1 hour or more | `log-highlighter: parsed in 01:02:03.456` |
 
-### Real-time re-highlight
+### Per-tab highlight state
 
-After pressing **Ctrl+Alt+Q** once, any text change (insert or delete) in the document triggers an automatic full re-parse and re-highlight — no need to press the shortcut again.
+Parse results are cached per open tab. Switching to another tab and back restores
+that tab's Overview Panel marks instantly with no re-parse — Scintilla keeps the
+in-editor highlights per buffer on its own. Closing a tab frees its match list.
+
+Highlights are **not** refreshed automatically after you edit the document, and
+opening a file never triggers a parse. **Ctrl+Alt+Q** is the only trigger.
 
 ---
 
@@ -61,21 +75,23 @@ After pressing **Ctrl+Alt+Q** once, any text change (insert or delete) in the do
 | **Plugins > log-highlighter > Parse Log** | Same as Ctrl+Alt+Q |
 | **Plugins > log-highlighter > About** | Show plugin version |
 
-### Large files (≥ 5 000 lines)
+### Progress dialog
 
-A modeless progress dialog appears showing `Processing: N / M lines` with a **Cancel** button.
-Parsing runs on a background thread so the dialog stays responsive.
-Pressing Cancel leaves the document in its original (un-highlighted) state.
+A modeless progress dialog appears on **every** parse and covers two phases:
 
-### Lazy rendering
+| Phase | Label | Cancel |
+|---|---|---|
+| 1 — parsing | `Processing: N / M lines`, updated every 500 lines | available |
+| 2 — applying highlights | `Applying highlights...` | hidden |
 
-Highlights are applied to the visible viewport + 1 000 lines ahead at parse time.
-The remaining off-screen highlights are applied automatically as you scroll,
-so response after Ctrl+Alt+Q is always fast regardless of file size.
+Parsing runs on the UI thread; the progress callback pumps messages with
+`PeekMessage` every 500 lines, so the dialog keeps repainting and Cancel stays
+clickable. The Notepad++ window is disabled for the duration of both phases to
+block re-entrant Ctrl+Alt+Q presses.
 
-> **Note** — the Overview Panel always shows marks for the entire document
-> immediately after parsing, because it reads from the in-memory match list,
-> not from Scintilla indicators.
+Cancelling during phase 1 clears all highlights and the Overview Panel, leaving
+the document in its original un-highlighted state and writing no timing to the
+status bar. Phase 2 cannot be cancelled — it blocks until every match is filled.
 
 ---
 
@@ -175,34 +191,45 @@ log-highlighter/
 │   └── SciLexer.h
 ├── config/                       ← user-editable settings
 │   ├── LogPatterns.h             ← keywords, colors, panel visibility
+│   ├── OverviewConfig.h          ← panel width, mark height, snap radius, colors
 │   └── AboutInfo.h               ← plugin name, version, about text
 └── src/                          ← implementation
     ├── dllmain.cpp
     ├── Plugin.h / Plugin.cpp     ← Notepad++ API exports, parse orchestration
     ├── Parser.h / Parser.cpp     ← Aho-Corasick single-pass scanner
-    ├── log-highlighter.h / .cpp  ← Scintilla indicator styles & lazy rendering
+    ├── log-highlighter.h / .cpp  ← Scintilla indicator styles & bulk fill
     ├── OverviewPanel.h / .cpp    ← non-client-area minimap panel
-    └── ProgressDialog.h / .cpp   ← modeless progress window for large files
+    └── ProgressDialog.h / .cpp   ← modeless two-phase progress window
 ```
 
 ### Key implementation notes
 
-- **Scanner** (`Parser.cpp`): Aho-Corasick automaton built once at startup from
-  `LogPatterns.h`. Scans the document in a single O(N) pass regardless of the
-  number of patterns. Safe to call from any thread.
+- **Scanner** (`Parser.cpp`): Aho-Corasick automaton built once per process on
+  first use from `LogPatterns.h`. Scans the document in a single O(N) pass
+  regardless of the number of patterns. `ParseDocument` copies the document into
+  a local buffer before scanning, so the scan survives edits made while the
+  progress callback is pumping messages.
 
-- **Lazy rendering** (`log-highlighter.cpp`): Scintilla indicators are applied
-  only for the visible viewport + 1 000-line lookahead on first parse.
-  `SCN_UPDATEUI` extends coverage as the user scrolls. Eliminates the per-fill
-  `SCN_MODIFIED(CHANGEINDICATOR)` notification overhead that would otherwise
-  make large files take several seconds to render.
+- **Bulk indicator fill** (`log-highlighter.cpp`): each `SCI_INDICATORFILLRANGE`
+  normally fires an `SCN_MODIFIED(CHANGEINDICATOR)` notification back to
+  Notepad++ over a synchronous `SendMessage` round-trip (~120 µs). At 64 k
+  matches that alone costs 7+ seconds, so `ApplyHighlights` masks
+  `SC_MOD_CHANGEINDICATOR` out of the mod-event mask for the duration of the
+  fill and restores it afterwards.
+
+- **Per-buffer state** (`Plugin.cpp`): match lists are keyed by NPP buffer ID.
+  `NPPN_BUFFERACTIVATED` rebuilds the Overview Panel from the cached list;
+  `NPPN_FILEBEFORECLOSE` drops it. No parse is ever triggered by a notification.
 
 - **Overview Panel** (`OverviewPanel.cpp`): Implemented via Win32 window
   subclassing of the Scintilla HWND (`WM_NCCALCSIZE` / `WM_NCPAINT`).
   No separate child window is created; the panel strip is carved out of
   Scintilla's non-client area.
 
-- **Progress dialog** (`ProgressDialog.cpp`): Modeless `WS_POPUP` window.
-  Parsing runs on a `std::thread`; the UI thread pumps messages via
-  `MsgWaitForMultipleObjects` so the dialog stays alive and Cancel is responsive.
-  `EnableWindow(hNpp, FALSE)` prevents re-entrant Ctrl+Alt+Q during parsing.
+- **Progress dialog** (`ProgressDialog.cpp`): Modeless `WS_POPUP` window with a
+  fixed size (`WM_GETMINMAXINFO`). Everything runs on the UI thread — no worker
+  thread. The parse progress callback drains the message queue with
+  `PeekMessage` every 500 lines, which is what keeps the window painted and
+  Cancel clickable. `SetProgressApplying` switches the label for phase 2 and
+  hides Cancel, then forces a repaint via `UpdateWindow` before the apply loop
+  blocks the thread. `EnableWindow(hNpp, FALSE)` prevents re-entrant Ctrl+Alt+Q.

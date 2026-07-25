@@ -23,12 +23,12 @@ static ShortcutKey g_parseLogKey;
 static OverviewPanel g_overviewPanel;
 
 // Per-buffer parse state. Key = NPP buffer ID (NPPM_GETCURRENTBUFFERID).
-// Scintilla indicators are stored per-buffer by NPP already; this tracks
-// the in-memory match list and lazy-rendering cursor for each open buffer.
+// Scintilla indicators are stored per-buffer by NPP already; this tracks the
+// in-memory match list for each open buffer so the Overview Panel can be
+// restored on tab switch without re-parsing.
 struct BufferState
 {
     std::vector<Match> matches;
-    intptr_t           appliedByteEnd  = -1;
     bool               highlightActive = false;
 };
 static std::unordered_map<LRESULT, BufferState> g_bufferStates;
@@ -143,7 +143,6 @@ static void ParseLog()
         if (g_overviewPanel.IsInitialized())
             g_overviewPanel.Update(hSci, {});
         buf.highlightActive = false;
-        buf.appliedByteEnd  = -1;
         return;
     }
 
@@ -152,9 +151,8 @@ static void ParseLog()
     SetProgressApplying(hDlg);
 
     ClearAllHighlights(hSci);
-    ApplyHighlights(hSci, buf.matches); // repaintAfter = true (default)
+    ApplyHighlights(hSci, buf.matches);
     buf.highlightActive = true;
-    buf.appliedByteEnd  = -1;
 
     // Init AFTER ApplyHighlights so SWP_FRAMECHANGED doesn't queue a WM_SIZE
     // that fires before the indicator fill reaches the screen.

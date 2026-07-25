@@ -25,15 +25,9 @@ struct Match {
     intptr_t  length;
 };
 
-// Scan from a Scintilla window (must be called on the UI thread).
+// Scan the document in a Scintilla window (must be called on the UI thread).
+// The document is snapshotted into a local buffer before scanning, so the scan
+// stays valid even if progressFn pumps messages and the user edits the text.
 std::vector<Match> ParseDocument(
     HWND                                      hScintilla,
-    std::function<bool(int, int)>             progressFn = nullptr);
-
-// Scan from a pre-snapshotted buffer (safe to call from any thread).
-// docBuf must have been copied from Scintilla on the UI thread before any
-// other windows/messages are created.
-std::vector<Match> ParseDocument(
-    const std::vector<char>&                  docBuf,
-    int                                       totalLines,
     std::function<bool(int, int)>             progressFn = nullptr);
