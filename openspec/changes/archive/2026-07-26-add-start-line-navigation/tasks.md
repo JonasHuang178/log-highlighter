@@ -16,4 +16,4 @@
 ## 4. Verification
 
 - [x] 4.1 Build the plugin and verify it compiles without errors
-- [ ] 4.2 Test: parse a log with `Start test` lines, press Ctrl+Alt+W, confirm it jumps to the next Bookmark line centered in viewport and wraps around
+- [x] 4.2 Test: parse a log with `Start test` lines, press Ctrl+Alt+W, confirm it jumps to the next Bookmark line centered in viewport and wraps around
