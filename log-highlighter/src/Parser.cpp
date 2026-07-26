@@ -10,6 +10,8 @@ static constexpr int LOG_RULE_COUNT =
     static_cast<int>(sizeof(LOG_TYPE_RULES) / sizeof(LOG_TYPE_RULES[0]));
 static constexpr int STEP_RULE_COUNT =
     static_cast<int>(sizeof(STEP_TYPE_RULES) / sizeof(STEP_TYPE_RULES[0]));
+static constexpr int BOOKMARK_RULE_COUNT =
+    static_cast<int>(sizeof(BOOKMARK_RULES) / sizeof(BOOKMARK_RULES[0]));
 
 // ---------------------------------------------------------------------------
 //  Aho-Corasick multi-pattern automaton
@@ -93,6 +95,8 @@ static const AhoCorasick& getAC()
             a.addPattern(LOG_TYPE_RULES [i].keyword, i, MatchType::LOG_TYPE);
         for (int i = 0; i < STEP_RULE_COUNT; ++i)
             a.addPattern(STEP_TYPE_RULES[i].prefix,  i, MatchType::STEP_TYPE);
+        for (int i = 0; i < BOOKMARK_RULE_COUNT; ++i)
+            a.addPattern(BOOKMARK_RULES[i].keyword, i, MatchType::BOOKMARK);
         a.build();
         return a;
     }();
@@ -138,9 +142,9 @@ static std::vector<Match> ScanBuffer(const char*                    text,
             // AC reports a match ending at p; matchStart is p - len + 1.
             const char* matchStart = p - out.len + 1;
 
-            if (out.type == MatchType::LOG_TYPE)
+            if (out.type == MatchType::LOG_TYPE || out.type == MatchType::BOOKMARK)
             {
-                results.push_back({ MatchType::LOG_TYPE, out.ruleIndex,
+                results.push_back({ out.type, out.ruleIndex,
                                      static_cast<intptr_t>(matchStart - text),
                                      static_cast<intptr_t>(out.len) });
             }

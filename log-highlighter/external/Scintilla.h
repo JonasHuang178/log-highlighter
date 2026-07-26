@@ -37,6 +37,7 @@ struct Sci_TextRange {
 #define SCI_LINEFROMPOSITION        2166  // wParam=bytePos → line number (0-based)
 #define SCI_POSITIONFROMLINE        2167  // wParam=line → byte offset at start of line
 #define SCI_GETLINEENDPOSITION      2136  // wParam=line → byte offset at end of line (excl. newline)
+#define SCI_GETCURRENTPOS           2008  // → current caret byte position
 #define SCI_GETFIRSTVISIBLELINE     2152  // → first visible line number
 #define SCI_LINESONSCREEN           2197  // → number of lines visible in view
 #define SCI_GOTOLINE                2024  // wParam=line → move caret to line start

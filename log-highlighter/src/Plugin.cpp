@@ -16,8 +16,9 @@
 // ---------------------------------------------------------------------------
 NppData g_nppData = {};
 
-static FuncItem    g_funcItems[2];   // 0 = Parse Log, 1 = About
+static FuncItem    g_funcItems[3];   // 0 = Parse Log, 1 = Next Bookmark, 2 = About
 static ShortcutKey g_parseLogKey;
+static ShortcutKey g_nextBookmarkKey;
 
 // The overview panel (right-side docked minimap)
 static OverviewPanel g_overviewPanel;
@@ -72,7 +73,12 @@ static std::vector<PanelMark> BuildPanelMarks(HWND hSci,
         {
             const auto& rule = LOG_TYPE_RULES[m.ruleIndex];
             show = rule.showInPanel;
-            // MAKE_BGR(r,g,b) == RGB(r,g,b) — already a standard COLORREF, use directly.
+            col = rule.textColor;
+        }
+        else if (m.type == MatchType::BOOKMARK)
+        {
+            const auto& rule = BOOKMARK_RULES[m.ruleIndex];
+            show = rule.showInPanel;
             col = rule.textColor;
         }
         else // STEP_TYPE
@@ -189,6 +195,88 @@ static void ParseLog()
 }
 
 // ---------------------------------------------------------------------------
+// Command: Next Bookmark  (Ctrl+Alt+W)
+// ---------------------------------------------------------------------------
+static constexpr UINT_PTR kBookmarkTimerId = 0xAB43;
+static int  g_pendingBookmarkNavLine = -1;
+
+static void CALLBACK BookmarkTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD)
+{
+    ::KillTimer(hwnd, id);
+    if (g_pendingBookmarkNavLine < 0) return;
+
+    int line = g_pendingBookmarkNavLine;
+    g_pendingBookmarkNavLine = -1;
+
+    int visible = static_cast<int>(
+        ::SendMessage(hwnd, SCI_LINESONSCREEN, 0, 0));
+    if (visible <= 1) visible = 30;
+
+    int firstVisible = line - visible / 2;
+    if (firstVisible < 0) firstVisible = 0;
+
+    ::SendMessage(hwnd, SCI_SETFIRSTVISIBLELINE,
+                  static_cast<WPARAM>(firstVisible), 0);
+
+    intptr_t pos = ::SendMessage(hwnd, SCI_POSITIONFROMLINE,
+                                 static_cast<WPARAM>(line), 0);
+    ::SendMessage(hwnd, SCI_SETEMPTYSELECTION,
+                  static_cast<WPARAM>(pos), 0);
+
+    ::SendMessage(hwnd, SCI_SETFIRSTVISIBLELINE,
+                  static_cast<WPARAM>(firstVisible), 0);
+}
+
+static void NextBookmark()
+{
+    HWND hSci = GetCurrentScintilla();
+    if (!hSci) return;
+
+    const BufferState& buf = CurrentBuffer();
+
+    // Collect line numbers of all BOOKMARK matches
+    std::vector<int> startLines;
+    for (const auto& m : buf.matches)
+    {
+        if (m.type != MatchType::BOOKMARK) continue;
+
+        int line = static_cast<int>(
+            ::SendMessage(hSci, SCI_LINEFROMPOSITION,
+                          static_cast<WPARAM>(m.byteOffset), 0));
+        if (startLines.empty() || startLines.back() != line)
+            startLines.push_back(line);
+    }
+
+    if (startLines.empty())
+    {
+        const wchar_t* msg = buf.highlightActive
+            ? L"log-highlighter: no Bookmark matches found."
+            : L"log-highlighter: no Bookmark matches. Run Parse Log first.";
+        ::SendMessage(g_nppData._nppHandle, NPPM_SETSTATUSBAR,
+                      STATUSBAR_DOC_TYPE, reinterpret_cast<LPARAM>(msg));
+        return;
+    }
+
+    int caretPos  = static_cast<int>(::SendMessage(hSci, SCI_GETCURRENTPOS, 0, 0));
+    int caretLine = static_cast<int>(::SendMessage(hSci, SCI_LINEFROMPOSITION,
+                                                    static_cast<WPARAM>(caretPos), 0));
+
+    // Find next bookmark after caret
+    int targetLine = startLines[0]; // default: wrap to first
+    for (int line : startLines)
+    {
+        if (line > caretLine)
+        {
+            targetLine = line;
+            break;
+        }
+    }
+
+    g_pendingBookmarkNavLine = targetLine;
+    ::SetTimer(hSci, kBookmarkTimerId, 10, BookmarkTimerProc);
+}
+
+// ---------------------------------------------------------------------------
 // Command: About
 // ---------------------------------------------------------------------------
 static void ShowAbout()
@@ -216,7 +304,7 @@ __declspec(dllexport) const TCHAR* getName()
 
 __declspec(dllexport) FuncItem* getFuncsArray(int* nbF)
 {
-    *nbF = 2;
+    *nbF = 3;
 
     // --- [0] Parse Log ---
     _tcscpy_s(g_funcItems[0]._itemName, TEXT("Parse Log"));
@@ -231,12 +319,25 @@ __declspec(dllexport) FuncItem* getFuncsArray(int* nbF)
     g_parseLogKey._key     = 'Q';
     g_funcItems[0]._pShKey = &g_parseLogKey;
 
-    // --- [1] About ---
-    _tcscpy_s(g_funcItems[1]._itemName, TEXT("About"));
-    g_funcItems[1]._pFunc      = ShowAbout;
+    // --- [1] Next Bookmark ---
+    _tcscpy_s(g_funcItems[1]._itemName, TEXT("Next Bookmark"));
+    g_funcItems[1]._pFunc      = NextBookmark;
     g_funcItems[1]._cmdID      = 0;
     g_funcItems[1]._init2Check = false;
-    g_funcItems[1]._pShKey     = nullptr;  // no shortcut key
+
+    // Ctrl + Alt + W
+    g_nextBookmarkKey._isCtrl  = true;
+    g_nextBookmarkKey._isAlt   = true;
+    g_nextBookmarkKey._isShift = false;
+    g_nextBookmarkKey._key     = 'W';
+    g_funcItems[1]._pShKey = &g_nextBookmarkKey;
+
+    // --- [2] About ---
+    _tcscpy_s(g_funcItems[2]._itemName, TEXT("About"));
+    g_funcItems[2]._pFunc      = ShowAbout;
+    g_funcItems[2]._cmdID      = 0;
+    g_funcItems[2]._init2Check = false;
+    g_funcItems[2]._pShKey     = nullptr;  // no shortcut key
 
     return g_funcItems;
 }
