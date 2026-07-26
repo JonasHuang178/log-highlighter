@@ -18,9 +18,12 @@ static constexpr int LOG_RULE_COUNT =
     static_cast<int>(sizeof(LOG_TYPE_RULES) / sizeof(LOG_TYPE_RULES[0]));
 static constexpr int STEP_RULE_COUNT =
     static_cast<int>(sizeof(STEP_TYPE_RULES) / sizeof(STEP_TYPE_RULES[0]));
+static constexpr int BOOKMARK_RULE_COUNT =
+    static_cast<int>(sizeof(BOOKMARK_RULES) / sizeof(BOOKMARK_RULES[0]));
 
-static constexpr int INDIC_LOG_BASE  = 11;
-static constexpr int INDIC_STEP_BASE = INDIC_LOG_BASE + LOG_RULE_COUNT;  // = 14
+static constexpr int INDIC_LOG_BASE        = 11;
+static constexpr int INDIC_STEP_BASE       = INDIC_LOG_BASE  + LOG_RULE_COUNT;
+static constexpr int INDIC_BOOKMARK_BASE = INDIC_STEP_BASE + STEP_RULE_COUNT;
 
 static inline LRESULT Sci(HWND h, UINT msg, WPARAM wp = 0, LPARAM lp = 0)
 {
@@ -57,6 +60,15 @@ void InitStyles(HWND hSci)
         Sci(hSci, SCI_INDICSETALPHA, idx, 255);   // fully opaque
         Sci(hSci, SCI_INDICSETUNDER, idx, TRUE);  // render under text layer
     }
+
+    // Bookmark: INDIC_TEXTFORE - same as Log Type
+    for (int i = 0; i < BOOKMARK_RULE_COUNT; ++i)
+    {
+        const int idx = INDIC_BOOKMARK_BASE + i;
+        Sci(hSci, SCI_INDICSETSTYLE, idx, INDIC_TEXTFORE);
+        Sci(hSci, SCI_INDICSETFORE,  idx,
+            static_cast<LPARAM>(BOOKMARK_RULES[i].textColor));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +90,11 @@ void ClearAllHighlights(HWND hSci)
         Sci(hSci, SCI_SETINDICATORCURRENT, INDIC_STEP_BASE + i);
         Sci(hSci, SCI_INDICATORCLEARRANGE, 0, static_cast<LPARAM>(docLen));
     }
+    for (int i = 0; i < BOOKMARK_RULE_COUNT; ++i)
+    {
+        Sci(hSci, SCI_SETINDICATORCURRENT, INDIC_BOOKMARK_BASE + i);
+        Sci(hSci, SCI_INDICATORCLEARRANGE, 0, static_cast<LPARAM>(docLen));
+    }
 
     Sci(hSci, SCI_SETMODEVENTMASK, origMask, 0);
 }
@@ -97,9 +114,10 @@ void ApplyHighlights(HWND hSci,
 
     for (const auto& m : matches)
     {
-        const int idx = (m.type == MatchType::LOG_TYPE)
-                      ? INDIC_LOG_BASE  + m.ruleIndex
-                      : INDIC_STEP_BASE + m.ruleIndex;
+        int idx;
+        if      (m.type == MatchType::LOG_TYPE)   idx = INDIC_LOG_BASE        + m.ruleIndex;
+        else if (m.type == MatchType::BOOKMARK) idx = INDIC_BOOKMARK_BASE + m.ruleIndex;
+        else                                      idx = INDIC_STEP_BASE       + m.ruleIndex;
 
         Sci(hSci, SCI_SETINDICATORCURRENT, idx);
         Sci(hSci, SCI_INDICATORFILLRANGE,

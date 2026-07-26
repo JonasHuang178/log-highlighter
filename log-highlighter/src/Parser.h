@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 //  MatchType - corresponds to the two rule types in config/LogPatterns.h
 // ---------------------------------------------------------------------------
-enum class MatchType { LOG_TYPE, STEP_TYPE };
+enum class MatchType { LOG_TYPE, STEP_TYPE, BOOKMARK };
 
 // ---------------------------------------------------------------------------
 //  Match - one parse result entry

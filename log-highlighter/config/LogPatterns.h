@@ -60,6 +60,31 @@ struct StepTypeRule {
 static const StepTypeRule STEP_TYPE_RULES[] = {
 //   prefix   bgColor                  showInPanel
     { "Step",  MAKE_BGR(180, 230, 180), false },  // light green background
+    { "Step123",  MAKE_BGR(180, 230, 180), false },  // light green background
+};
+
+
+// -----------------------------------------------------------------------------
+//  Bookmark Rules
+//
+//  Match      : exact string match (case-sensitive), same as LogTypeRule
+//  Range      : the keyword itself gets the text color applied
+//  Navigation : Ctrl+Alt+W jumps to the next match, cycling through all
+//
+//  Fields:
+//    keyword     - target string (UTF-8)
+//    textColor   - foreground color in the editor, use MAKE_BGR(R, G, B)
+//    showInPanel - show a colored mark in the Overview Panel (true/false)
+// -----------------------------------------------------------------------------
+struct BookmarkRule {
+    const char* keyword;
+    COLORREF    textColor;
+    bool        showInPanel;
+};
+
+static const BookmarkRule BOOKMARK_RULES[] = {
+//   keyword        textColor                  showInPanel
+    { "Start test", MAKE_BGR(200,   0, 180),   true  },  // magenta — shown in panel
 };
 
 #endif // LOG_PATTERNS_H
