@@ -1,7 +1,8 @@
 # log-highlighter
 
 A Notepad++ 64-bit plugin that colorizes log keywords and step markers on demand
-(**Ctrl+Alt+Q**), with a clickable overview minimap of every match in the file.
+(**Ctrl+Alt+Q**), with a clickable overview minimap of every match in the file and
+keyboard navigation between bookmark keywords (**Ctrl+Alt+W**).
 
 ---
 
@@ -11,23 +12,39 @@ A Notepad++ 64-bit plugin that colorizes log keywords and step markers on demand
 
 Exact keyword match (case-sensitive). Applies a foreground color to the matched keyword.
 
-| Keyword | Color |
-|---|---|
-| `[ ERROR ]` | Red |
-| `[ WARN ]` | Golden yellow |
-| `[ DEBUG ]` | Cornflower blue |
-| `[  ERROR  ]` | Red |
-| `[ WARNING ]` | Golden yellow |
-| `[  MSG    ]` | Cornflower blue |
+| Keyword | Color | Shown in panel |
+|---|---|---|
+| `[ ERROR ]` | Red | yes |
+| `[ WARN ]` | Golden yellow | no |
+| `[ DEBUG ]` | Cornflower blue | no |
 
 ### Step Type — background color
 
 Matches `<prefix><digits>` followed by a space or end-of-line.
 Applies a background color from the prefix to the end of the line.
 
-| Pattern | Valid examples | Invalid examples | Color |
-|---|---|---|---|
-| `StepN` | `Step1 `, `Step12 `, `Step123` | `Step `, `Stepname`, `Step1init` | Light green |
+| Prefix | Valid examples | Invalid examples | Color | Shown in panel |
+|---|---|---|---|---|
+| `Step` | `Step1 `, `Step12 `, `Step123` | `Step `, `Stepname`, `Step1init` | Light green | no |
+| `Step123` | `Step1234 ` | `Step123 ` (no digit after the prefix) | Light green | no |
+
+> The shipped `Step123` rule is redundant: the prefix still requires at least one
+> digit after it, so everything it can match (`Step1234 `) is already matched by
+> `Step`. It is safe to delete from `LogPatterns.h`.
+
+### Bookmark Type — foreground color + Ctrl+Alt+W navigation
+
+Exact keyword match (case-sensitive), colored the same way as a Log Type keyword,
+but also usable as a jump target: **Ctrl+Alt+W** moves the caret to the next
+bookmark line, wrapping back to the first one at the end of the file.
+
+| Keyword | Color | Shown in panel |
+|---|---|---|
+| `Start test` | Magenta | yes |
+
+Navigation uses the match list from the last **Ctrl+Alt+Q**, so a buffer must be
+parsed before Ctrl+Alt+W has anywhere to jump. If there is nothing to jump to,
+the status bar says so and the caret stays put.
 
 ### Overview Panel
 
@@ -72,7 +89,9 @@ opening a file never triggers a parse. **Ctrl+Alt+Q** is the only trigger.
 | Action | Result |
 |---|---|
 | **Ctrl+Alt+Q** | Scan the active document and apply all highlights |
+| **Ctrl+Alt+W** | Jump to the next Bookmark keyword, centered in the viewport |
 | **Plugins > log-highlighter > Parse Log** | Same as Ctrl+Alt+Q |
+| **Plugins > log-highlighter > Next Bookmark** | Same as Ctrl+Alt+W |
 | **Plugins > log-highlighter > About** | Show plugin version |
 
 ### Progress dialog
@@ -166,6 +185,19 @@ Fields:
 Match rule: `<prefix>` + one or more digits + (space or end-of-line).
 The highlighted range runs from the start of the prefix to the end of the line.
 
+### Add a Bookmark keyword
+
+```cpp
+static const BookmarkRule BOOKMARK_RULES[] = {
+    { "Start test", MAKE_BGR(200,   0, 180), true },  // magenta — shown in panel
+    { "End test",   MAKE_BGR(  0, 180, 180), true },  // teal    ← add here
+};
+```
+
+Fields are identical to `LogTypeRule` (`keyword`, `textColor`, `showInPanel`).
+Every entry here is also a **Ctrl+Alt+W** jump target — all bookmark rules share
+one navigation cycle, ordered by position in the document.
+
 ### Overview Panel appearance
 
 Edit **`config/OverviewConfig.h`** and rebuild.
@@ -174,12 +206,15 @@ Edit **`config/OverviewConfig.h`** and rebuild.
 |---|---|---|
 | `OVERVIEW_PANEL_WIDTH` | `14` | Panel strip width in pixels |
 | `OVERVIEW_MARK_MIN_H` | `1` | Minimum mark height in pixels |
-| `OVERVIEW_BG_COLOR` | `RGB(60, 60, 60)` | Panel background color |
 | `OVERVIEW_SNAP_RADIUS` | `50` | Click snap radius in document lines (0 = disable) |
 | `OVERVIEW_VIEWPORT_BORDER_VISIBLE` | `true` | Show the viewport indicator box (`false` = hidden entirely) |
 | `OVERVIEW_VIEWPORT_COLOR` | `RGB(130, 130, 130)` | Viewport box border color |
 | `OVERVIEW_VIEWPORT_BORDER_WIDTH` | `1` | Viewport box border pen width in pixels |
 | `OVERVIEW_VIEWPORT_BG_COLOR` | `CLR_NONE` | Viewport box fill color (`CLR_NONE` = system scrollbar color) |
+
+`OverviewConfig.h` also defines `OVERVIEW_BG_COLOR`, but nothing reads it — the
+panel background is painted with the system color `COLOR_BTNFACE` so the strip
+matches the scrollbar next to it. Changing that constant has no effect.
 
 ### Color macro
 
@@ -232,6 +267,18 @@ log-highlighter/
   matches that alone costs 7+ seconds, so `ApplyHighlights` masks
   `SC_MOD_CHANGEINDICATOR` out of the mod-event mask for the duration of the
   fill and restores it afterwards.
+
+- **Indicator layout** (`log-highlighter.cpp`): indicator indices start at 11 to
+  clear Notepad++'s built-ins (0–10, including Smart Highlight at 8). The three
+  rule tables are laid out back to back — Log Type, then Step Type, then
+  Bookmark — with each base derived at compile time from the previous table's
+  `sizeof`, so adding a rule shifts the later ranges automatically.
+
+- **Bookmark navigation** (`Plugin.cpp`): `NextBookmark` walks the current
+  buffer's cached match list for `BOOKMARK` entries, picks the first line past
+  the caret (wrapping to the first match otherwise), and centers it via the same
+  deferred `SetTimer(10ms)` trick the Overview Panel uses — a direct scroll from
+  the command handler gets overridden by Notepad++ afterwards.
 
 - **Per-buffer state** (`Plugin.cpp`): match lists are keyed by NPP buffer ID.
   `NPPN_BUFFERACTIVATED` rebuilds the Overview Panel from the cached list;
