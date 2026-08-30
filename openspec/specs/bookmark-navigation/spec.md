@@ -1,3 +1,10 @@
+## Purpose
+
+Moving the caret between bookmark keyword occurrences as a navigation aid.
+Separate from highlighting because it is a way of *travelling* through a log
+rather than a way of colouring one, and it works on a document that has never
+been parsed.
+
 ## Requirements
 
 ### Requirement: Next Bookmark command

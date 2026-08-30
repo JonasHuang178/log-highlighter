@@ -1,3 +1,8 @@
+## Purpose
+
+Reporting how long a parse took, so the cost of running it on a large file is
+visible rather than guessed at.
+
 ## Requirements
 
 ### Requirement: Parse time displayed in Notepad++ status bar

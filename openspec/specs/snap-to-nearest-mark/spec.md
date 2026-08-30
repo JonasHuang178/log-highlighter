@@ -1,4 +1,10 @@
-## ADDED Requirements
+## Purpose
+
+Making the Overview Panel's marks reliably clickable. Separate from the panel
+itself because it is a targeting rule with its own tunable radius, not a
+drawing concern.
+
+## Requirements
 
 ### Requirement: Overview Panel click snaps to nearest mark within radius
 When the user clicks the Overview Panel, the plugin SHALL compute the raw proportional line from the click Y position and then find the mark in `m_marks` whose `line` is closest to that raw line (minimum absolute difference). If that closest mark is within `OVERVIEW_SNAP_RADIUS` lines of the raw line, the plugin SHALL navigate to that mark's line. If the closest mark is farther than `OVERVIEW_SNAP_RADIUS` lines, or if `m_marks` is empty, the plugin SHALL fall back to proportional navigation (jump to raw line).

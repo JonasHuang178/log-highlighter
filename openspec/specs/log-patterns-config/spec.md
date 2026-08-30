@@ -1,3 +1,10 @@
+## Purpose
+
+The structure and matching semantics of the user-editable rule configuration
+that drives all highlighting. Separate from the scanner because it defines
+*what counts as a match* and what a user may safely change, independently of
+how matches are found.
+
 ## Requirements
 
 ### Requirement: LogTypeRule struct
