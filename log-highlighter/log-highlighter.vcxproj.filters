@@ -38,6 +38,9 @@
     <ClCompile Include="src\ReportDialog.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\DebugConsole.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <!-- Header files (.h) -->
   <ItemGroup>
@@ -84,6 +87,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\ReportDialog.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\DebugConsole.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="config\CustomReports.h">

@@ -20,3 +20,16 @@ char CustomReportShortcut(int index);
 // Runs report `index` against the active document and shows the result.
 // Safe to call with an out-of-range index (does nothing).
 void RunCustomReport(int index);
+
+// True when config/CustomReports.h sets REPORT_DEBUG_MODE. Lets Plugin.cpp act
+// on the flag without including CustomReports.h, which must stay included by
+// Report.cpp alone.
+bool ReportDebugEnabled();
+
+// Writes one engine breadcrumb line to the debug console. Exempt from the
+// author output cap, and a no-op when debug mode is off or the console is
+// closed. `text` is ASCII.
+void ReportEngineLog(const char* text);
+
+// Same, for text that has to carry a file name.
+void ReportEngineLogW(const wchar_t* text);
