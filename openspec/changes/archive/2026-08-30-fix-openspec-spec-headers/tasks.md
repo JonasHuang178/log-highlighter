@@ -20,10 +20,10 @@
 
 ## 4. Archive and verify the generated capability spec
 
-- [ ] 4.1 Run `openspec archive fix-openspec-spec-headers` without `--skip-specs`, so the new `spec-document-structure` capability is written into `openspec/specs/`
-- [ ] 4.2 Run `openspec validate --specs` immediately afterwards — this is the loop the new capability requires, and design Decision 5 predicts it may fail here
-- [ ] 4.3 If archive wrote `openspec/specs/spec-document-structure/spec.md` with a line-1 delta header or without a `## Purpose`, repair it the same way as tasks 1 and 2, then re-validate. If archive normalized it, record that the prediction was wrong and do nothing
-- [ ] 4.4 Confirm `openspec validate --specs` reports 9 passed, 3 failed — the 8 from task 3.1 plus the newly created `spec-document-structure`, with the same 3 content-defect failures still outstanding
+- [x] 4.1 Run `openspec archive fix-openspec-spec-headers` without `--skip-specs`, so the new `spec-document-structure` capability is written into `openspec/specs/`
+- [x] 4.2 Run `openspec validate --specs` immediately afterwards — this is the loop the new capability requires, and design Decision 5 predicts it may fail here
+- [x] 4.3 If archive wrote `openspec/specs/spec-document-structure/spec.md` with a line-1 delta header or without a `## Purpose`, repair it the same way as tasks 1 and 2, then re-validate. If archive normalized it, record that the prediction was wrong and do nothing
+- [x] 4.4 Confirm `openspec validate --specs` reports 9 passed, 3 failed — the 8 from task 3.1 plus the newly created `spec-document-structure`, with the same 3 content-defect failures still outstanding
 
 ## 5. Hand off the remainder
 

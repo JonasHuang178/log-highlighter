@@ -168,6 +168,20 @@ done.
 something untrue about the change, and it would trade a durable rule for a
 one-time cleanup that silently re-breaks on the next purely-additive archive.
 
+**Outcome — the prediction was wrong.** Archiving this change wrote
+`openspec/specs/spec-document-structure/spec.md` with a correct `## Requirements`
+header and an inserted `## Purpose` placeholder. The current tooling normalizes a
+purely-additive delta rather than copying its header through, so the failure mode
+behind `b8fd849`, `68925d5` and `5341d11` does not reproduce today — those three
+came from an older code path. Only the placeholder text
+(`TBD - created by archiving change ...`) needed replacing, since the capability's
+own first requirement forbids a Purpose that does not describe the capability.
+
+This does not make the capability redundant. What was missing was never the
+tool's correctness on any single day; it was the absence of any check that would
+notice if that changed. The post-archive validation requirement stands, and it is
+what turned this from an assumption into an observation.
+
 ### Decision 6 — Stop at the structural boundary, and accept an unclean validation result
 
 Fixing the headers let validation reach the requirement bodies for the first time,
