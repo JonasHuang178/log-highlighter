@@ -6,6 +6,11 @@
 
 ## 2. Build verification
 
+2.3 to 2.5 require a running Notepad++ and a human judging colors and positions.
+They are deliberately deferred by the author, who intends to take up in-editor
+verification as its own piece of work. A successful compile does not stand in for
+them, so they stay unchecked rather than being marked done.
+
 - [x] 2.1 Build Release x64 and confirm it compiles with no new warnings
 - [x] 2.2 Verify the derived index bases shifted as expected: `INDIC_BOOKMARK_BASE` is 15 (was 16) and `BOOKMARK_PATTERN_BASE` shifted correspondingly, with no source change required
 - [ ] 2.3 Run Ctrl+Alt+Q on a log containing `Step1 `, `Step1234 ` and `Start test`; confirm Step lines are highlighted exactly as before and bookmark keywords still render in magenta
@@ -14,11 +19,15 @@
 
 ## 3. Spec updates
 
-- [ ] 3.1 Apply the `log-patterns-config` delta: add "Shipped rule table invariants", "No redundant STEP_TYPE prefix" and "LogPatterns.h structural inventory"
-- [ ] 3.2 Apply the `log-patterns-config` MODIFIED requirements: "Rebuild-only customization" (constant list becomes an exact set, with scenarios) and "BookmarkRule struct" (absorbs the generalized case-sensitivity scenario)
-- [ ] 3.3 Apply the `log-patterns-config` REMOVED requirements: delete "Default rules" and "Default bookmark rules", verifying no scenario is lost that was not re-attached in 3.2
-- [ ] 3.4 Apply the `overview-panel` delta: add "Panel background matches the adjacent scrollbar"
-- [ ] 3.5 Re-read `openspec/specs/log-patterns-config/spec.md` end to end and confirm no remaining text pins specific shipped keywords as normative
+The delta files under `specs/` are applied to `openspec/specs/` by
+`openspec archive`, which is documented as "Archive a completed change and update
+main specs" and is how every prior change in this repo synced (`adafa41`,
+`0493b02`, `b8fd849` — each archives and syncs in one commit). Applying them by
+hand would double-apply. Only the post-archive verification is a task here.
+
+- [ ] 3.1 After archiving, re-read `openspec/specs/log-patterns-config/spec.md` end to end and confirm no remaining text pins specific shipped keywords as normative
+- [ ] 3.2 After archiving, confirm `openspec/specs/overview-panel/spec.md` carries "Panel background matches the adjacent scrollbar"
+- [ ] 3.3 After archiving, confirm "Default rules" and "Default bookmark rules" are gone and that the case-sensitivity scenario survives under "BookmarkRule struct"
 
 ## 4. Documentation
 
