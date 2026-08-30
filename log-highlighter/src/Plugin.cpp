@@ -1,5 +1,6 @@
 #include "Plugin.h"
 #include "Parser.h"
+#include "Report.h"
 #include "log-highlighter.h"
 #include "OverviewPanel.h"
 #include "ProgressDialog.h"
@@ -9,6 +10,7 @@
 #include <tchar.h>
 #include <vector>
 #include <unordered_map>
+#include <utility>
 #include <chrono>
 
 // ---------------------------------------------------------------------------
@@ -16,22 +18,20 @@
 // ---------------------------------------------------------------------------
 NppData g_nppData = {};
 
-static FuncItem    g_funcItems[3];   // 0 = Parse Log, 1 = Next Bookmark, 2 = About
-static ShortcutKey g_parseLogKey;
-static ShortcutKey g_nextBookmarkKey;
+// Menu layout: Parse Log, Next Bookmark, one entry per registered report, About.
+// Sized at runtime because the report table lives in config/CustomReports.h,
+// which only Report.cpp is allowed to include.
+static std::vector<FuncItem>    g_funcItems;
+static std::vector<ShortcutKey> g_shortcutKeys;
 
 // The overview panel (right-side docked minimap)
 static OverviewPanel g_overviewPanel;
 
-// Per-buffer parse state. Key = NPP buffer ID (NPPM_GETCURRENTBUFFERID).
+// Per-buffer scan caches. Key = NPP buffer ID (NPPM_GETCURRENTBUFFERID).
 // Scintilla indicators are stored per-buffer by NPP already; this tracks the
-// in-memory match list for each open buffer so the Overview Panel can be
-// restored on tab switch without re-parsing.
-struct BufferState
-{
-    std::vector<Match> matches;
-    bool               highlightActive = false;
-};
+// in-memory results for each open buffer so the Overview Panel can be restored
+// on tab switch, and so bookmark navigation and reports do not rescan on every
+// keypress. BufferState itself is declared in Plugin.h — Report.cpp shares it.
 static std::unordered_map<LRESULT, BufferState> g_bufferStates;
 
 // ---------------------------------------------------------------------------
@@ -50,11 +50,51 @@ HWND GetCurrentScintilla()
 
 // Returns the BufferState for the currently active NPP buffer.
 // Default-constructs a new entry if this buffer has never been parsed.
-static BufferState& CurrentBuffer()
+BufferState& CurrentBuffer()
 {
     LRESULT id = ::SendMessage(g_nppData._nppHandle,
                                NPPM_GETCURRENTBUFFERID, 0, 0);
     return g_bufferStates[id];
+}
+
+// Drops the caches whose correctness depends on byte offsets staying valid.
+//
+// `matches` and `highlightActive` are left alone on purpose: Parse Log always
+// rescans, and keeping them means the Overview Panel still restores marks on
+// tab switch rather than going blank after an unrelated keystroke. The marks
+// may be slightly out of date, which is the same trade the editor's own
+// indicators make.
+void InvalidateIfStale(BufferState& buf)
+{
+    if (!buf.stale) return;
+
+    buf.bookmarkLines.clear();
+    buf.bookmarksCached = false;
+
+    buf.reportText.clear();
+    buf.reportIndex = -1;
+
+    buf.stale = false;
+}
+
+// Collects the 0-based lines carrying a BOOKMARK match, in document order.
+static std::vector<int> BookmarkLinesFrom(HWND hSci,
+                                           const std::vector<Match>& matches)
+{
+    std::vector<int> lines;
+
+    for (const auto& m : matches)
+    {
+        if (m.type != MatchType::BOOKMARK) continue;
+
+        int line = static_cast<int>(
+            ::SendMessage(hSci, SCI_LINEFROMPOSITION,
+                          static_cast<WPARAM>(m.byteOffset), 0));
+        if (lines.empty() || lines.back() != line)
+            lines.push_back(line);
+    }
+
+    return lines;
 }
 
 // Build PanelMark list from g_matches (only showInPanel == true rules)
@@ -123,6 +163,7 @@ static void ParseLog()
     ::EnableWindow(g_nppData._nppHandle, FALSE);
 
     BufferState& buf = CurrentBuffer();
+    InvalidateIfStale(buf);
 
     buf.matches = ParseDocument(hSci, [&](int cur, int total) -> bool
     {
@@ -159,6 +200,12 @@ static void ParseLog()
     ClearAllHighlights(hSci);
     ApplyHighlights(hSci, buf.matches);
     buf.highlightActive = true;
+
+    // Free side effect: this scan already visited every BOOKMARK hit, so fill
+    // the navigation cache too. This creates no dependency in either direction —
+    // Next Bookmark scans for itself whenever the cache is empty.
+    buf.bookmarkLines   = BookmarkLinesFrom(hSci, buf.matches);
+    buf.bookmarksCached = true;
 
     // Init AFTER ApplyHighlights so SWP_FRAMECHANGED doesn't queue a WM_SIZE
     // that fires before the indicator fill reaches the screen.
@@ -232,26 +279,27 @@ static void NextBookmark()
     HWND hSci = GetCurrentScintilla();
     if (!hSci) return;
 
-    const BufferState& buf = CurrentBuffer();
+    BufferState& buf = CurrentBuffer();
+    InvalidateIfStale(buf);
 
-    // Collect line numbers of all BOOKMARK matches
-    std::vector<int> startLines;
-    for (const auto& m : buf.matches)
+    // Scan for ourselves when the cache is empty. Parse Log is not a
+    // precondition — it merely fills this cache early when it happens to run.
+    //
+    // The scan goes through ParseDocument rather than a bookmark-only pass:
+    // Aho-Corasick costs the same regardless of pattern count, so filtering
+    // afterwards is free. No progress dialog — repeated presses hit the cache,
+    // so the scan happens at most once per edit.
+    if (!buf.bookmarksCached)
     {
-        if (m.type != MatchType::BOOKMARK) continue;
-
-        int line = static_cast<int>(
-            ::SendMessage(hSci, SCI_LINEFROMPOSITION,
-                          static_cast<WPARAM>(m.byteOffset), 0));
-        if (startLines.empty() || startLines.back() != line)
-            startLines.push_back(line);
+        buf.bookmarkLines   = BookmarkLinesFrom(hSci, ParseDocument(hSci));
+        buf.bookmarksCached = true;
     }
+
+    const std::vector<int>& startLines = buf.bookmarkLines;
 
     if (startLines.empty())
     {
-        const wchar_t* msg = buf.highlightActive
-            ? L"log-highlighter: no Bookmark matches found."
-            : L"log-highlighter: no Bookmark matches. Run Parse Log first.";
+        const wchar_t* msg = L"log-highlighter: no Bookmark matches found.";
         ::SendMessage(g_nppData._nppHandle, NPPM_SETSTATUSBAR,
                       STATUSBAR_DOC_TYPE, reinterpret_cast<LPARAM>(msg));
         return;
@@ -288,6 +336,26 @@ static void ShowAbout()
 }
 
 // ---------------------------------------------------------------------------
+// Command dispatch for custom reports
+//
+// A Notepad++ command callback takes no arguments, so every report needs its
+// own distinct function pointer. These thunks are generated at compile time.
+// The cap limits only how many reports can be registered, not how they are
+// written; raise it here if CUSTOM_REPORTS[] ever outgrows it.
+// ---------------------------------------------------------------------------
+static constexpr int kMaxReports = 16;
+
+template <int N>
+static void ReportThunk() { RunCustomReport(N); }
+
+template <int... Is>
+static void FillReportThunks(PFUNCPLUGINCMD*                 out,
+                             std::integer_sequence<int, Is...>)
+{
+    ((out[Is] = &ReportThunk<Is>), ...);
+}
+
+// ---------------------------------------------------------------------------
 // Notepad++ Plugin API exports
 // ---------------------------------------------------------------------------
 extern "C" {
@@ -304,42 +372,71 @@ __declspec(dllexport) const TCHAR* getName()
 
 __declspec(dllexport) FuncItem* getFuncsArray(int* nbF)
 {
-    *nbF = 3;
+    static PFUNCPLUGINCMD thunks[kMaxReports] = {};
+    FillReportThunks(thunks, std::make_integer_sequence<int, kMaxReports>{});
 
-    // --- [0] Parse Log ---
-    _tcscpy_s(g_funcItems[0]._itemName, TEXT("Parse Log"));
-    g_funcItems[0]._pFunc      = ParseLog;
-    g_funcItems[0]._cmdID      = 0;
-    g_funcItems[0]._init2Check = false;
+    int reportCount = CustomReportCount();
+    if (reportCount > kMaxReports) reportCount = kMaxReports;
 
-    // Ctrl + Alt + Q
-    g_parseLogKey._isCtrl  = true;
-    g_parseLogKey._isAlt   = true;
-    g_parseLogKey._isShift = false;
-    g_parseLogKey._key     = 'Q';
-    g_funcItems[0]._pShKey = &g_parseLogKey;
+    const int total = 2 + reportCount + 1;   // Parse Log, Next Bookmark, ..., About
 
-    // --- [1] Next Bookmark ---
-    _tcscpy_s(g_funcItems[1]._itemName, TEXT("Next Bookmark"));
-    g_funcItems[1]._pFunc      = NextBookmark;
-    g_funcItems[1]._cmdID      = 0;
-    g_funcItems[1]._init2Check = false;
+    // Sized once, before any _pShKey pointer is taken — a later reallocation
+    // would dangle every shortcut Notepad++ is holding.
+    g_funcItems.assign(static_cast<size_t>(total), FuncItem{});
+    g_shortcutKeys.assign(static_cast<size_t>(total), ShortcutKey{});
 
-    // Ctrl + Alt + W
-    g_nextBookmarkKey._isCtrl  = true;
-    g_nextBookmarkKey._isAlt   = true;
-    g_nextBookmarkKey._isShift = false;
-    g_nextBookmarkKey._key     = 'W';
-    g_funcItems[1]._pShKey = &g_nextBookmarkKey;
+    const auto bindShortcut = [](int slot, UCHAR key)
+    {
+        g_shortcutKeys[slot]._isCtrl  = true;
+        g_shortcutKeys[slot]._isAlt   = true;
+        g_shortcutKeys[slot]._isShift = false;
+        g_shortcutKeys[slot]._key     = key;
+        g_funcItems[slot]._pShKey     = &g_shortcutKeys[slot];
+    };
 
-    // --- [2] About ---
-    _tcscpy_s(g_funcItems[2]._itemName, TEXT("About"));
-    g_funcItems[2]._pFunc      = ShowAbout;
-    g_funcItems[2]._cmdID      = 0;
-    g_funcItems[2]._init2Check = false;
-    g_funcItems[2]._pShKey     = nullptr;  // no shortcut key
+    int i = 0;
 
-    return g_funcItems;
+    // --- Parse Log (Ctrl+Alt+Q) ---
+    _tcscpy_s(g_funcItems[i]._itemName, TEXT("Parse Log"));
+    g_funcItems[i]._pFunc      = ParseLog;
+    g_funcItems[i]._cmdID      = 0;
+    g_funcItems[i]._init2Check = false;
+    bindShortcut(i, 'Q');
+    ++i;
+
+    // --- Next Bookmark (Ctrl+Alt+W) ---
+    _tcscpy_s(g_funcItems[i]._itemName, TEXT("Next Bookmark"));
+    g_funcItems[i]._pFunc      = NextBookmark;
+    g_funcItems[i]._cmdID      = 0;
+    g_funcItems[i]._init2Check = false;
+    bindShortcut(i, 'W');
+    ++i;
+
+    // --- One entry per report registered in config/CustomReports.h ---
+    for (int r = 0; r < reportCount; ++r, ++i)
+    {
+        _tcsncpy_s(g_funcItems[i]._itemName, MENU_ITEM_MAX_LENGTH,
+                   CustomReportTitle(r), _TRUNCATE);
+        g_funcItems[i]._pFunc      = thunks[r];
+        g_funcItems[i]._cmdID      = 0;
+        g_funcItems[i]._init2Check = false;
+
+        const char shortcut = CustomReportShortcut(r);
+        if (shortcut)
+            bindShortcut(i, static_cast<UCHAR>(shortcut));
+        else
+            g_funcItems[i]._pShKey = nullptr;   // assignable via Shortcut Mapper
+    }
+
+    // --- About ---
+    _tcscpy_s(g_funcItems[i]._itemName, TEXT("About"));
+    g_funcItems[i]._pFunc      = ShowAbout;
+    g_funcItems[i]._cmdID      = 0;
+    g_funcItems[i]._init2Check = false;
+    g_funcItems[i]._pShKey     = nullptr;  // no shortcut key
+
+    *nbF = total;
+    return g_funcItems.data();
 }
 
 __declspec(dllexport) void setInfo(NppData notepadPlusData)
@@ -358,6 +455,17 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
     case SCN_UPDATEUI:
         // Triggered on scroll, selection change, etc. — refresh viewport indicator box.
         g_overviewPanel.UpdateViewport();
+        break;
+
+    case SCN_MODIFIED:
+        // The document changed, so every cached byte offset for this buffer is
+        // now suspect. Flag it and nothing else — no parse, no scan, no report
+        // is ever started from a notification.
+        if (notification->modificationType &
+            (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT))
+        {
+            CurrentBuffer().stale = true;
+        }
         break;
 
     case NPPN_BUFFERACTIVATED:

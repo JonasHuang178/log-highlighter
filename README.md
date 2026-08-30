@@ -1,8 +1,9 @@
 # log-highlighter
 
 A Notepad++ 64-bit plugin that colorizes log keywords and step markers on demand
-(**Ctrl+Alt+Q**), with a clickable overview minimap of every match in the file and
-keyboard navigation between bookmark keywords (**Ctrl+Alt+W**).
+(**Ctrl+Alt+Q**), with a clickable overview minimap of every match in the file,
+keyboard navigation between bookmark keywords (**Ctrl+Alt+W**), and custom
+reports you write yourself in C++ (**Ctrl+Alt+E**).
 
 ---
 
@@ -42,9 +43,11 @@ bookmark line, wrapping back to the first one at the end of the file.
 |---|---|---|
 | `Start test` | Magenta | yes |
 
-Navigation uses the match list from the last **Ctrl+Alt+Q**, so a buffer must be
-parsed before Ctrl+Alt+W has anywhere to jump. If there is nothing to jump to,
-the status bar says so and the caret stays put.
+Ctrl+Alt+W is independent of Ctrl+Alt+Q: it scans for bookmark keywords itself
+the first time you press it, so it works on a freshly opened file. Repeated
+presses reuse that scan and cycle instantly; editing the document makes the next
+press rescan. If there is nothing to jump to, the status bar says so and the
+caret stays put.
 
 ### Overview Panel
 
@@ -62,6 +65,37 @@ jump. The target line is centered in the viewport with the caret at line start.
 
 Marks are built from the in-memory match list, not from Scintilla indicators,
 so the panel always covers the whole document.
+
+### Custom Report — write your own parser
+
+**Ctrl+Alt+E** runs a report function you write in `config/CustomReports.h` against
+the active document and shows its output in a read-only window. What a report
+extracts is entirely up to you — the plugin makes no assumptions about your log
+format.
+
+```
+IP Report - device_20260830.log  (45,210 lines)
+===============================================
+
+---- IP addresses ----------------------------
+10.0.0.3         :    27 hits   first @ L887
+172.16.0.5       :     3 hits   first @ L1203
+192.168.1.10     :  1823 hits   first @ L142
+
+Unique addresses : 3
+```
+
+The window is monospaced so aligned columns line up, resizable, and scrollable.
+Select any part of it and copy with **Ctrl+C** or the right-click menu; right-click
+also offers **Select All**. **ESC** closes it.
+
+Each report registered in `CUSTOM_REPORTS[]` gets its own menu item. Results are
+cached per tab, so pressing the shortcut again is instant until you edit the file.
+
+Like Ctrl+Alt+W, Ctrl+Alt+E is independent of Ctrl+Alt+Q — you never have to parse
+first. A progress dialog with a working Cancel button appears while the report runs.
+
+See [Write your own report](#write-your-own-report) for the authoring guide.
 
 ### Parse time display
 
@@ -90,9 +124,14 @@ opening a file never triggers a parse. **Ctrl+Alt+Q** is the only trigger.
 |---|---|
 | **Ctrl+Alt+Q** | Scan the active document and apply all highlights |
 | **Ctrl+Alt+W** | Jump to the next Bookmark keyword, centered in the viewport |
+| **Ctrl+Alt+E** | Run the first registered custom report and show the result |
 | **Plugins > log-highlighter > Parse Log** | Same as Ctrl+Alt+Q |
 | **Plugins > log-highlighter > Next Bookmark** | Same as Ctrl+Alt+W |
+| **Plugins > log-highlighter > _\<report name\>_** | Run that report |
 | **Plugins > log-highlighter > About** | Show plugin version |
+
+The three commands are independent — none of them requires another to have run
+first. Each caches its own result per tab and rescans after you edit the document.
 
 ### Progress dialog
 
@@ -143,8 +182,9 @@ status bar. Phase 2 cannot be cancelled — it blocks until every match is fille
 
 ## Customization
 
-Edit **`config/LogPatterns.h`** (keywords, colors) or **`config/OverviewConfig.h`** (panel
-appearance) and rebuild. No other files need to change.
+Edit **`config/LogPatterns.h`** (keywords, colors), **`config/OverviewConfig.h`** (panel
+appearance) or **`config/CustomReports.h`** (your own reports) and rebuild. No other
+files need to change.
 
 ### Add a Log Type keyword
 
@@ -198,6 +238,121 @@ Fields are identical to `LogTypeRule` (`keyword`, `textColor`, `showInPanel`).
 Every entry here is also a **Ctrl+Alt+W** jump target — all bookmark rules share
 one navigation cycle, ordered by position in the document.
 
+### Write your own report
+
+Edit **`config/CustomReports.h`** and rebuild. Write a function, add a row to
+`CUSTOM_REPORTS[]`, done.
+
+```cpp
+static void IpReport(const ReportContext& ctx, ReportBuilder& out)
+{
+    out.Section("IP addresses");
+
+    for (auto [lineNo, line] : ctx.Lines())
+    {
+        auto ip = Field(After(line, "IP: "), ' ', 0);
+        if (ip.empty()) continue;
+
+        out.AtLine(lineNo, ip);
+    }
+}
+
+static const CustomReport CUSTOM_REPORTS[] = {
+//   Menu title       Function    Shortcut (0 = none)
+    { L"IP Report",  IpReport,   'R' },
+};
+```
+
+`CUSTOM_REPORTS[]` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `const wchar_t*` | Menu item text under Plugins > log-highlighter |
+| `fn` | `ReportFn` | `void (const ReportContext&, ReportBuilder&)` |
+| `shortcut` | `char` | Letter for Ctrl+Alt+`<letter>`, or `0` for none |
+
+The file ships with three worked examples — a two-line one, one that aggregates
+with `std::map`, and one that scans several keywords in a single pass.
+
+#### Reading the document — `ReportContext`
+
+| Member | Description |
+|---|---|
+| `ctx.Lines()` | `for (auto [lineNo, line] : ctx.Lines())` — 1-based, no line ending, no trailing `\r`, empty lines included |
+| `ctx.FindAll("kw")` | `for (auto hit : ctx.FindAll("kw"))` |
+| `ctx.FindAll({"a","b"})` | One Aho-Corasick pass; ten keywords cost the same as one |
+| `ctx.text` / `ctx.length` | Raw snapshot bytes — no progress, no cancel |
+| `ctx.lineCount` | Total number of lines |
+| `ctx.fileName` / `ctx.filePath` | Active document, as `const wchar_t*` |
+
+A `hit` carries `keyword`, `lineNo`, `line` and `after` (the rest of the line
+starting past the keyword).
+
+#### Writing output — `ReportBuilder`
+
+| Call | Output |
+|---|---|
+| `out.Section("Title")` | `---- Title -----------------`, and resets alignment |
+| `out.Line(text)` | Free text, not aligned |
+| `out.KV(key, value)` | `key : value` — value may be text or any number |
+| `out.KVf(key, fmt, ...)` | Value rendered with a printf format |
+| `out.AtLine(n, text)` | `L  142 : text` |
+| `out.Blank()` | Empty line |
+
+Key columns are aligned automatically, independently per `Section`. The report
+title, file name and line count are added for you.
+
+#### String helpers
+
+| Helper | Result |
+|---|---|
+| `After(s, kw)` | Text after the first `kw` |
+| `Before(s, kw)` | Text before the first `kw` |
+| `Between(s, a, b)` | Text between `a` and the first `b` after it |
+| `Field(s, delim, n)` | The n-th field, 0-based; runs of delimiters give empty fields |
+| `Trim(s)` | Leading and trailing whitespace removed |
+| `Contains` / `StartsWith` / `EndsWith` | `bool` |
+| `ToInt(s, out)` / `ToDouble(s, out)` | `bool`; `out` untouched on failure |
+
+**Every extraction helper returns empty rather than failing**, and empty input
+gives empty output. That is what lets them nest without a check at each level:
+
+```cpp
+auto ip = Field(After(line, "IP: "), ' ', 0);
+if (ip.empty()) continue;          // one check covers both steps
+```
+
+#### Guarantees
+
+- Every `string_view` from `ctx` or a helper points into a private snapshot that
+  lives until your function returns. Collecting them into a `std::map` or
+  `std::vector` is safe and copies no characters — don't store them outside the
+  function.
+- Line numbers are 1-based, matching the Notepad++ margin.
+- Progress and Cancel work by themselves as long as you iterate with
+  `ctx.Lines()` or `ctx.FindAll()`. Reading `ctx.text` directly opts out of both.
+
+#### Hazards
+
+- **There is no crash guard.** A stray pointer in a report function takes down
+  Notepad++ and every unsaved tab with it. Stay on `ctx.Lines()`, `ctx.FindAll()`
+  and the helpers and you cannot go out of range.
+- **Save `CustomReports.h` as UTF-8 with BOM** if you use non-ASCII keywords.
+  Without the BOM, MSVC reads the source in the system ANSI code page and your
+  literal silently never matches the UTF-8 document.
+- Keyword characters passed to `FindAll` must outlive the loop. String literals
+  always do; a temporary `std::string` does not.
+- `CustomReports.h` is included by `src/Report.cpp` only.
+
+#### Debugging a report
+
+There is no crash guard and no test harness, so use the debugger:
+
+1. Build **Debug | x64**
+2. Copy `log-highlighter.dll` into the plugin folder and start Notepad++
+3. In Visual Studio: **Debug > Attach to Process** → `notepad++.exe`
+4. Set a breakpoint in your report function and press its shortcut
+
 ### Overview Panel appearance
 
 Edit **`config/OverviewConfig.h`** and rebuild.
@@ -243,11 +398,16 @@ log-highlighter/
 ├── config/                       ← user-editable settings
 │   ├── LogPatterns.h             ← keywords, colors, panel visibility
 │   ├── OverviewConfig.h          ← panel width, mark height, snap radius, colors
+│   ├── CustomReports.h           ← your own report functions (UTF-8 with BOM)
 │   └── AboutInfo.h               ← plugin name, version, about text
 └── src/                          ← implementation
     ├── dllmain.cpp
-    ├── Plugin.h / Plugin.cpp     ← Notepad++ API exports, parse orchestration
-    ├── Parser.h / Parser.cpp     ← Aho-Corasick single-pass scanner
+    ├── Plugin.h / Plugin.cpp     ← Notepad++ API exports, per-buffer caches
+    ├── Parser.h / Parser.cpp     ← document snapshot + rule-table scan
+    ├── AhoCorasick.h             ← multi-pattern automaton (no platform types)
+    ├── ReportApi.h               ← report authoring surface (the firewall)
+    ├── Report.h / Report.cpp     ← report engine: snapshot, progress, encoding
+    ├── ReportDialog.h / .cpp     ← modal read-only report window
     ├── log-highlighter.h / .cpp  ← Scintilla indicator styles & bulk fill
     ├── OverviewPanel.h / .cpp    ← non-client-area minimap panel
     └── ProgressDialog.h / .cpp   ← modeless two-phase progress window
@@ -255,11 +415,45 @@ log-highlighter/
 
 ### Key implementation notes
 
-- **Scanner** (`Parser.cpp`): Aho-Corasick automaton built once per process on
-  first use from `LogPatterns.h`. Scans the document in a single O(N) pass
-  regardless of the number of patterns. `ParseDocument` copies the document into
-  a local buffer before scanning, so the scan survives edits made while the
-  progress callback is pumping messages.
+- **Scanner** (`Parser.cpp`, `AhoCorasick.h`): the automaton lives in
+  `AhoCorasick.h`, identifies patterns by a caller-chosen integer, and knows
+  nothing about rule tables — which is what lets `ReportApi.h` reuse it for
+  `ctx.FindAll()`. `Parser.cpp` builds one once per process from `LogPatterns.h`
+  and maps indices back to rule tables through contiguous per-table bases, the
+  same scheme used for indicator bases. Scanning is a single O(N) pass regardless
+  of pattern count. `SnapshotDocument` copies the document into a local buffer
+  before any scan, so a scan survives edits made while a progress callback is
+  pumping messages.
+
+- **Report firewall** (`ReportApi.h`): the report authoring surface contains no
+  `windows.h`, no Scintilla and no `Parser.h`, so a report function never sees
+  `HWND`, `SendMessage`, `SCI_*` or `Match`. Everything crosses the boundary as
+  `std::string_view` and `int`. `Report.cpp` handles the platform side —
+  snapshot, progress, `SCI_GETCODEPAGE` conversion to UTF-16, caching.
+
+- **Report progress** (`ReportApi.h`): the line and `FindAll` iterators tick a
+  `ProgressSink` every 500 lines and pump messages, so an author writing an
+  ordinary range-for gets a working progress bar and Cancel button without
+  knowing either exists. On cancel the iterator compares equal to `end()`, the
+  author's loop ends normally, and the engine discards the output.
+
+- **No crash guard** (`Report.cpp`): report functions are invoked directly, with
+  no SEH wrapper — a fault takes down Notepad++. The mitigation is that every
+  helper in `ReportApi.h` returns empty instead of reading out of range, so an
+  author who stays on the provided APIs cannot construct an invalid access.
+
+- **Independent commands** (`Plugin.cpp`): Parse Log, Next Bookmark and Custom
+  Report each fill their own per-buffer cache on first use; none is a
+  precondition for another. `SCN_MODIFIED` sets a single `stale` flag that
+  invalidates the offset-dependent caches on next use — it never starts a scan
+  itself. Parse Log fills the bookmark cache as a free side effect of its own
+  scan, which creates no dependency in either direction.
+
+- **Report menu wiring** (`Plugin.cpp`): a Notepad++ command callback takes no
+  arguments, so each report needs a distinct function pointer. Compile-time
+  generated thunks (`ReportThunk<N>`) supply them, which is why `Plugin.cpp` can
+  drive the menu through `Report.h` accessors and leave `CustomReports.h`
+  included by exactly one translation unit.
 
 - **Bulk indicator fill** (`log-highlighter.cpp`): each `SCI_INDICATORFILLRANGE`
   normally fires an `SCN_MODIFIED(CHANGEINDICATOR)` notification back to
@@ -274,15 +468,20 @@ log-highlighter/
   Bookmark — with each base derived at compile time from the previous table's
   `sizeof`, so adding a rule shifts the later ranges automatically.
 
-- **Bookmark navigation** (`Plugin.cpp`): `NextBookmark` walks the current
-  buffer's cached match list for `BOOKMARK` entries, picks the first line past
-  the caret (wrapping to the first match otherwise), and centers it via the same
-  deferred `SetTimer(10ms)` trick the Overview Panel uses — a direct scroll from
-  the command handler gets overridden by Notepad++ afterwards.
+- **Bookmark navigation** (`Plugin.cpp`): `NextBookmark` scans for itself when
+  its cache is empty, picks the first bookmark line past the caret (wrapping to
+  the first match otherwise), and centers it via the same deferred
+  `SetTimer(10ms)` trick the Overview Panel uses — a direct scroll from the
+  command handler gets overridden by Notepad++ afterwards. The scan goes through
+  `ParseDocument` rather than a bookmark-only pass because Aho-Corasick costs the
+  same either way, so filtering afterwards is free.
 
-- **Per-buffer state** (`Plugin.cpp`): match lists are keyed by NPP buffer ID.
-  `NPPN_BUFFERACTIVATED` rebuilds the Overview Panel from the cached list;
-  `NPPN_FILEBEFORECLOSE` drops it. No parse is ever triggered by a notification.
+- **Per-buffer state** (`Plugin.cpp`): caches are keyed by NPP buffer ID.
+  `NPPN_BUFFERACTIVATED` rebuilds the Overview Panel from the cached match list;
+  `NPPN_FILEBEFORECLOSE` drops the whole entry. No parse, scan or report is ever
+  triggered by a notification. Editing leaves `matches` alone so the panel still
+  restores something on tab switch — the same trade the editor's own indicators
+  make — while the bookmark and report caches are dropped.
 
 - **Overview Panel** (`OverviewPanel.cpp`): Implemented via Win32 window
   subclassing of the Scintilla HWND (`WM_NCCALCSIZE` / `WM_NCPAINT`).

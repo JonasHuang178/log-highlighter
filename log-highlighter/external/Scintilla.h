@@ -29,6 +29,9 @@ struct Sci_TextRange {
 #define SCI_GETLENGTH               2006
 #define SCI_GETTEXTRANGE            2162
 #define SCI_GETCHARACTERPOINTER     2520  // returns const char* to raw UTF-8 buffer
+#define SCI_GETCODEPAGE             2137  // → document code page (SC_CP_UTF8 or 0 for ANSI)
+
+#define SC_CP_UTF8                  65001 // document buffer holds UTF-8 bytes
 
 // ---------------------------------------------------------------------------
 // Lines / navigation  (used by OverviewPanel)

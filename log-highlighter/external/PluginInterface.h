@@ -106,6 +106,15 @@ enum NppMsg : UINT {
     NPPMSG                      = WM_USER + 1000,
     NPPM_GETCURRENTSCINTILLA    = NPPMSG + 4,
     NPPM_GETCURRENTLANGTYPE     = NPPMSG + 5,
+    // wParam = buffer length in TCHARs, lParam = TCHAR* buffer.
+    //
+    // NOTE: this value is load-bearing. Sending a *wrong* Notepad++ message id
+    // with pointer-shaped arguments is not a no-op — Notepad++ will interpret
+    // wParam/lParam according to whatever message that id really is and write
+    // through them, which crashes the editor. The path getters live at +40..+44;
+    // the surrounding ids in this enum (SETSTATUSBAR +24, GETPLUGINSCONFIGDIR
+    // +46) bracket them and confirm the offset.
+    NPPM_GETFULLCURRENTPATH     = NPPMSG + 40,
     NPPM_SETSTATUSBAR           = NPPMSG + 24,
     NPPM_GETPLUGINSCONFIGDIR    = NPPMSG + 46,
     NPPM_MENUCOMMAND            = NPPMSG + 48,
