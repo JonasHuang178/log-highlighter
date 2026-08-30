@@ -27,11 +27,10 @@ Applies a background color from the prefix to the end of the line.
 | Prefix | Valid examples | Invalid examples | Color | Shown in panel |
 |---|---|---|---|---|
 | `Step` | `Step1 `, `Step12 `, `Step123` | `Step `, `Stepname`, `Step1init` | Light green | no |
-| `Step123` | `Step1234 ` | `Step123 ` (no digit after the prefix) | Light green | no |
 
-> The shipped `Step123` rule is redundant: the prefix still requires at least one
-> digit after it, so everything it can match (`Step1234 `) is already matched by
-> `Step`. It is safe to delete from `LogPatterns.h`.
+> Do not add a prefix that is another prefix followed only by digits — `Step123`
+> alongside `Step`, say. The longer one can never match anything the shorter one
+> misses, so it only produces a duplicate highlight over the same range.
 
 ### Bookmark Type — foreground color + Ctrl+Alt+W navigation
 
@@ -451,9 +450,9 @@ Edit **`config/OverviewConfig.h`** and rebuild.
 | `OVERVIEW_VIEWPORT_BORDER_WIDTH` | `1` | Viewport box border pen width in pixels |
 | `OVERVIEW_VIEWPORT_BG_COLOR` | `CLR_NONE` | Viewport box fill color (`CLR_NONE` = system scrollbar color) |
 
-`OverviewConfig.h` also defines `OVERVIEW_BG_COLOR`, but nothing reads it — the
-panel background is painted with the system color `COLOR_BTNFACE` so the strip
-matches the scrollbar next to it. Changing that constant has no effect.
+The panel background is not configurable. It is painted with the system color
+`COLOR_BTNFACE` so the strip reads as one surface with the scrollbar to its left,
+and follows your Windows theme without a rebuild.
 
 ### Color macro
 
