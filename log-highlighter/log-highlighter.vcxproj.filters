@@ -32,6 +32,12 @@
     <ClCompile Include="src\ProgressDialog.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="src\Report.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ReportDialog.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <!-- Header files (.h) -->
   <ItemGroup>
@@ -67,6 +73,21 @@
     </ClInclude>
     <ClInclude Include="src\ProgressDialog.h">
       <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\AhoCorasick.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ReportApi.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Report.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ReportDialog.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="config\CustomReports.h">
+      <Filter>config</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

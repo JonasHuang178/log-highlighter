@@ -25,6 +25,14 @@ struct Match {
     intptr_t  length;
 };
 
+// Copy the entire document out of a Scintilla window into a local buffer.
+// Must be called on the UI thread. Returns an empty vector for an empty document.
+//
+// Everything that scans the document goes through this first, so a scan stays
+// valid even if the caller pumps messages and the user edits the text while a
+// progress callback is running.
+std::vector<char> SnapshotDocument(HWND hScintilla);
+
 // Scan the document in a Scintilla window (must be called on the UI thread).
 // The document is snapshotted into a local buffer before scanning, so the scan
 // stays valid even if progressFn pumps messages and the user edits the text.

@@ -1,18 +1,4 @@
-## Requirements
-
-### Requirement: Next Bookmark command
-The plugin SHALL register a "Next Bookmark" command in the Notepad++ Plugins menu under log-highlighter.
-
-#### Scenario: Command appears in menu
-- **WHEN** the plugin is loaded
-- **THEN** "Next Bookmark" appears as a menu item under Plugins > log-highlighter
-
-### Requirement: Ctrl+Alt+W shortcut
-The "Next Bookmark" command SHALL be bound to Ctrl+Alt+W as its default shortcut.
-
-#### Scenario: Shortcut triggers navigation
-- **WHEN** the user presses Ctrl+Alt+W
-- **THEN** the "Next Bookmark" command executes
+## MODIFIED Requirements
 
 ### Requirement: Jump to next Bookmark match
 When invoked, the command SHALL find the next Bookmark match after the current caret line and
@@ -50,6 +36,8 @@ it is empty or invalidated. The command SHALL NOT require Parse Log to have run.
 - **WHEN** the document has been edited since the bookmark cache was populated
 - **THEN** the document is rescanned and navigation uses current line positions
 
+---
+
 ### Requirement: No matches feedback
 When the current buffer contains no Bookmark matches, the command SHALL display a status bar
 message indicating that none were found. The message SHALL NOT instruct the user to run Parse
@@ -60,6 +48,8 @@ Log, since Parse Log is no longer a precondition.
 - **AND** the user invokes "Next Bookmark"
 - **THEN** the status bar displays a message such as "No Bookmark matches found."
 - **AND** the caret does not move
+
+---
 
 ### Requirement: Parse Log populates the bookmark cache
 Parse Log SHALL populate the bookmark line cache for the current buffer as a side effect of its
@@ -73,10 +63,3 @@ is empty, whether or not Parse Log has run.
 #### Scenario: Parse Log cancelled
 - **WHEN** the user cancels Parse Log and then invokes "Next Bookmark"
 - **THEN** Next Bookmark scans the document itself and navigates normally
-
-### Requirement: Navigation scrolling behavior
-The command SHALL scroll the editor so the target line is centered vertically in the viewport, using deferred timer navigation to prevent Notepad++ from overriding the scroll position.
-
-#### Scenario: Target line is off-screen
-- **WHEN** the next Bookmark match is on a line not currently visible
-- **THEN** the editor scrolls to center that line vertically with the caret positioned at the start of the line

@@ -1,10 +1,10 @@
 #include "Parser.h"
+#include "AhoCorasick.h"
 #include "../config/LogPatterns.h"
 #include "../external/Scintilla.h"
 #include <cstring>
 #include <cctype>
 #include <vector>
-#include <queue>
 
 static constexpr int LOG_RULE_COUNT =
     static_cast<int>(sizeof(LOG_TYPE_RULES) / sizeof(LOG_TYPE_RULES[0]));
@@ -14,77 +14,35 @@ static constexpr int BOOKMARK_RULE_COUNT =
     static_cast<int>(sizeof(BOOKMARK_RULES) / sizeof(BOOKMARK_RULES[0]));
 
 // ---------------------------------------------------------------------------
-//  Aho-Corasick multi-pattern automaton
-//  Scans the document in a single pass regardless of the number of patterns.
+//  Pattern index layout inside the shared automaton.
+//
+//  The three rule tables are laid out back to back, each base derived from the
+//  previous table's size, so adding a rule shifts the later ranges
+//  automatically — the same scheme log-highlighter.cpp uses for indicators.
 // ---------------------------------------------------------------------------
-struct AhoCorasick
+static constexpr int LOG_PATTERN_BASE      = 0;
+static constexpr int STEP_PATTERN_BASE     = LOG_PATTERN_BASE  + LOG_RULE_COUNT;
+static constexpr int BOOKMARK_PATTERN_BASE = STEP_PATTERN_BASE + STEP_RULE_COUNT;
+
+// Maps a pattern index back to the rule table it came from.
+static void DecodePattern(int patternIndex, MatchType& type, int& ruleIndex)
 {
-    struct Output { int ruleIndex; MatchType type; int len; };
-
-    struct State
+    if (patternIndex < STEP_PATTERN_BASE)
     {
-        int next[256];
-        int fail = 0;
-        std::vector<Output> outputs;  // patterns that end at this state
-        State() { std::fill(next, next + 256, -1); }
-    };
-
-    std::vector<State> s;
-
-    AhoCorasick() { s.emplace_back(); } // state 0 = root
-
-    void addPattern(const char* pat, int ruleIndex, MatchType type)
-    {
-        int cur = 0;
-        int len = 0;
-        for (const char* p = pat; *p; ++p, ++len)
-        {
-            unsigned char c = static_cast<unsigned char>(*p);
-            if (s[cur].next[c] == -1)
-            {
-                s[cur].next[c] = static_cast<int>(s.size());
-                s.emplace_back();
-            }
-            cur = s[cur].next[c];
-        }
-        s[cur].outputs.push_back({ ruleIndex, type, len });
+        type      = MatchType::LOG_TYPE;
+        ruleIndex = patternIndex - LOG_PATTERN_BASE;
     }
-
-    void build()
+    else if (patternIndex < BOOKMARK_PATTERN_BASE)
     {
-        // BFS to set failure links and complete the goto function so every
-        // state has a valid transition for every character (no -1 entries).
-        std::queue<int> q;
-        for (int c = 0; c < 256; ++c)
-        {
-            if (s[0].next[c] == -1)
-                s[0].next[c] = 0;          // undefined → loop to root
-            else
-            {
-                s[s[0].next[c]].fail = 0;
-                q.push(s[0].next[c]);
-            }
-        }
-        while (!q.empty())
-        {
-            int u = q.front(); q.pop();
-            // Inherit outputs from failure state (suffix matches)
-            for (const auto& out : s[s[u].fail].outputs)
-                s[u].outputs.push_back(out);
-
-            for (int c = 0; c < 256; ++c)
-            {
-                if (s[u].next[c] == -1)
-                    s[u].next[c] = s[s[u].fail].next[c]; // follow fail link
-                else
-                {
-                    s[s[u].next[c]].fail = s[s[u].fail].next[c];
-                    q.push(s[u].next[c]);
-                }
-            }
-        }
+        type      = MatchType::STEP_TYPE;
+        ruleIndex = patternIndex - STEP_PATTERN_BASE;
     }
-};
+    else
+    {
+        type      = MatchType::BOOKMARK;
+        ruleIndex = patternIndex - BOOKMARK_PATTERN_BASE;
+    }
+}
 
 // Build the automaton once from the compile-time pattern tables.
 static const AhoCorasick& getAC()
@@ -92,11 +50,11 @@ static const AhoCorasick& getAC()
     static AhoCorasick ac = []() {
         AhoCorasick a;
         for (int i = 0; i < LOG_RULE_COUNT;  ++i)
-            a.addPattern(LOG_TYPE_RULES [i].keyword, i, MatchType::LOG_TYPE);
+            a.addPattern(LOG_TYPE_RULES [i].keyword, LOG_PATTERN_BASE      + i);
         for (int i = 0; i < STEP_RULE_COUNT; ++i)
-            a.addPattern(STEP_TYPE_RULES[i].prefix,  i, MatchType::STEP_TYPE);
+            a.addPattern(STEP_TYPE_RULES[i].prefix,  STEP_PATTERN_BASE     + i);
         for (int i = 0; i < BOOKMARK_RULE_COUNT; ++i)
-            a.addPattern(BOOKMARK_RULES[i].keyword, i, MatchType::BOOKMARK);
+            a.addPattern(BOOKMARK_RULES [i].keyword, BOOKMARK_PATTERN_BASE + i);
         a.build();
         return a;
     }();
@@ -133,18 +91,23 @@ static std::vector<Match> ScanBuffer(const char*                    text,
                 if (!progressFn(lineNo, totalLines)) return {};
         }
 
-        acState = ac.s[acState].next[c];
+        acState = ac.step(acState, *p);
 
-        if (ac.s[acState].outputs.empty()) continue;
+        const auto& outs = ac.outputs(acState);
+        if (outs.empty()) continue;
 
-        for (const auto& out : ac.s[acState].outputs)
+        for (const auto& out : outs)
         {
+            MatchType type;
+            int       ruleIndex;
+            DecodePattern(out.patternIndex, type, ruleIndex);
+
             // AC reports a match ending at p; matchStart is p - len + 1.
             const char* matchStart = p - out.len + 1;
 
-            if (out.type == MatchType::LOG_TYPE || out.type == MatchType::BOOKMARK)
+            if (type == MatchType::LOG_TYPE || type == MatchType::BOOKMARK)
             {
-                results.push_back({ out.type, out.ruleIndex,
+                results.push_back({ type, ruleIndex,
                                      static_cast<intptr_t>(matchStart - text),
                                      static_cast<intptr_t>(out.len) });
             }
@@ -161,7 +124,7 @@ static std::vector<Match> ScanBuffer(const char*                    text,
                 const char* lineEnd = q;
                 while (lineEnd < end && *lineEnd != '\r' && *lineEnd != '\n')
                     ++lineEnd;
-                results.push_back({ MatchType::STEP_TYPE, out.ruleIndex,
+                results.push_back({ MatchType::STEP_TYPE, ruleIndex,
                                      static_cast<intptr_t>(matchStart - text),
                                      static_cast<intptr_t>(lineEnd - matchStart) });
             }
@@ -176,10 +139,9 @@ static std::vector<Match> ScanBuffer(const char*                    text,
 }
 
 // ---------------------------------------------------------------------------
-//  ParseDocument — snapshot + scan on the UI thread.
+//  SnapshotDocument — copy the document out of Scintilla.
 // ---------------------------------------------------------------------------
-std::vector<Match> ParseDocument(HWND                          hScintilla,
-                                  std::function<bool(int, int)> progressFn)
+std::vector<char> SnapshotDocument(HWND hScintilla)
 {
     const intptr_t docLen = static_cast<intptr_t>(
         ::SendMessage(hScintilla, SCI_GETLENGTH, 0, 0));
@@ -189,11 +151,21 @@ std::vector<Match> ParseDocument(HWND                          hScintilla,
         ::SendMessage(hScintilla, SCI_GETCHARACTERPOINTER, 0, 0));
     if (!raw) return {};
 
-    std::vector<char> localBuf(raw, raw + docLen);
+    return std::vector<char>(raw, raw + docLen);
+}
+
+// ---------------------------------------------------------------------------
+//  ParseDocument — snapshot + scan on the UI thread.
+// ---------------------------------------------------------------------------
+std::vector<Match> ParseDocument(HWND                          hScintilla,
+                                  std::function<bool(int, int)> progressFn)
+{
+    std::vector<char> localBuf = SnapshotDocument(hScintilla);
+    if (localBuf.empty()) return {};
 
     const int totalLines = static_cast<int>(
         ::SendMessage(hScintilla, SCI_GETLINECOUNT, 0, 0));
 
-    return ScanBuffer(localBuf.data(), static_cast<size_t>(docLen),
+    return ScanBuffer(localBuf.data(), localBuf.size(),
                       totalLines, std::move(progressFn));
 }
