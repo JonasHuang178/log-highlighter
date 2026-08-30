@@ -6,16 +6,23 @@
 
 ## 2. Build verification
 
-2.3 to 2.5 require a running Notepad++ and a human judging colors and positions.
-They are deliberately deferred by the author, who intends to take up in-editor
-verification as its own piece of work. A successful compile does not stand in for
-them, so they stay unchecked rather than being marked done.
+2.3 to 2.5 required a running Notepad++ and a human judging colors and positions;
+a successful compile does not stand in for them. Verified in-editor by the author
+against a 19-line sample covering every case, including the negatives (`Step `,
+`Stepname`, `Step1init`, lowercase `start test`) and the one line the change
+actually affects.
+
+`Step1234 ` on line 9 is that line: before the change it matched both the `Step`
+and `Step123` rules and was filled twice over an identical range; after, once. It
+renders identically to the other Step lines, which is the outcome the redundancy
+argument predicted. Highlighting, the Overview Panel and both other commands all
+behaved as specified.
 
 - [x] 2.1 Build Release x64 and confirm it compiles with no new warnings
 - [x] 2.2 Verify the derived index bases shifted as expected: `INDIC_BOOKMARK_BASE` is 15 (was 16) and `BOOKMARK_PATTERN_BASE` shifted correspondingly, with no source change required
-- [ ] 2.3 Run Ctrl+Alt+Q on a log containing `Step1 `, `Step1234 ` and `Start test`; confirm Step lines are highlighted exactly as before and bookmark keywords still render in magenta
-- [ ] 2.4 Confirm the Overview Panel background is still `COLOR_BTNFACE` and visually continuous with the scrollbar
-- [ ] 2.5 Run Ctrl+Alt+W and one custom report to confirm the shifted indicator bases broke nothing
+- [x] 2.3 Run Ctrl+Alt+Q on a log containing `Step1 `, `Step1234 ` and `Start test`; confirm Step lines are highlighted exactly as before and bookmark keywords still render in magenta
+- [x] 2.4 Confirm the Overview Panel background is still `COLOR_BTNFACE` and visually continuous with the scrollbar
+- [x] 2.5 Run Ctrl+Alt+W and one custom report to confirm the shifted indicator bases broke nothing
 
 ## 3. Spec updates
 
