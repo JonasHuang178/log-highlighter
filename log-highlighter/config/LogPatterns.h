@@ -60,7 +60,6 @@ struct StepTypeRule {
 static const StepTypeRule STEP_TYPE_RULES[] = {
 //   prefix   bgColor                  showInPanel
     { "Step",  MAKE_BGR(180, 230, 180), false },  // light green background
-    { "Step123",  MAKE_BGR(180, 230, 180), false },  // light green background
 };
 
 

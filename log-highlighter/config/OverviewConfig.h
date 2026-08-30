@@ -16,8 +16,9 @@
 // on very large documents)
 #define OVERVIEW_MARK_MIN_H       1
 
-// Background color of the overview panel
-#define OVERVIEW_BG_COLOR        RGB(60, 60, 60)
+// The panel background is not configurable: it is painted with the system color
+// COLOR_BTNFACE so the strip reads as one surface with the scrollbar to its left
+// and follows the user's Windows theme. See the overview-panel spec.
 
 // Show the viewport indicator box border (true = visible, false = hidden)
 #define OVERVIEW_VIEWPORT_BORDER_VISIBLE  true
