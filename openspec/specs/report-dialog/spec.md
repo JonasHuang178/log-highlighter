@@ -1,3 +1,9 @@
+## Purpose
+
+Presenting report output in a window the user can read, select and copy from.
+Separate from the report framework so that how output is produced stays
+independent of how it is displayed.
+
 ## Requirements
 
 ### Requirement: Modal report window

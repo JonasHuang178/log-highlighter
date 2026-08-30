@@ -1,3 +1,9 @@
+## Purpose
+
+The opt-in console that lets a report author see what their parser is actually
+matching while they are writing it. Separate from the report framework because
+it exists for the author at development time, not for the user at run time.
+
 ## Requirements
 
 ### Requirement: Debug mode flag

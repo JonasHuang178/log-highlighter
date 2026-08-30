@@ -1,4 +1,10 @@
-## ADDED Requirements
+## Purpose
+
+Keeping the editor responsive and the work cancellable while a long scan runs
+on the UI thread. Separate because it is a property of every long-running
+command rather than of any one of them.
+
+## Requirements
 
 ### Requirement: Progress dialog during parsing
 A modeless progress window SHALL be shown on every `ParseLog()` invocation. The window SHALL display the current and total line count during parsing and SHALL include a Cancel button. The window size SHALL be fixed (non-resizable) via `WM_GETMINMAXINFO`.

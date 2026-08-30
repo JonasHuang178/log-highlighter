@@ -1,3 +1,11 @@
+## Purpose
+
+The framework that lets a user write their own document parser in C++ and see
+its output. It is a capability rather than a feature because the plugin
+deliberately assumes nothing about log format: what a report extracts is
+entirely the author's decision, and the plugin's obligation is to give them a
+safe surface to write against.
+
 ## Requirements
 
 ### Requirement: Custom Report command registration

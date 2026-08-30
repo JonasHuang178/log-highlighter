@@ -1,3 +1,10 @@
+## Purpose
+
+How each command's results are cached per open tab and invalidated when the
+document changes. Separate because it is what keeps the commands independent
+of one another: each fills its own cache on first use, and none is a
+precondition for another.
+
 ## Requirements
 
 ### Requirement: Per-buffer state map

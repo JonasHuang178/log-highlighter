@@ -1,3 +1,10 @@
+## Purpose
+
+Finding every configured keyword in the document in a single pass, at a cost
+that does not grow with the number of keywords. Separate from the rule
+configuration because it defines *how* matches are found, and it is reused by
+both highlighting and the report framework.
+
 ## Requirements
 
 ### Requirement: Aho-Corasick single-pass scanner

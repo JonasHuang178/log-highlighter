@@ -1,4 +1,10 @@
-## ADDED Requirements
+## Purpose
+
+The minimap strip at the editor's right edge showing where matches fall in the
+whole document, and letting the user jump to them. It is a distinct capability
+because it presents the document at a scale the editor viewport cannot.
+
+## Requirements
 
 ### Requirement: NCA panel on the right side of Scintilla
 The plugin SHALL steal 14px from the right edge of the Scintilla HWND via `WM_NCCALCSIZE` using `SetWindowSubclass`. The panel SHALL be painted via `WM_NCPAINT` using `GetWindowDC` and a double-buffered off-screen DC. The subclass SHALL be installed on the first `ParseLog()` call (lazy init) and removed on `WM_NCDESTROY`.
