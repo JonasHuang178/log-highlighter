@@ -43,8 +43,9 @@
 //  * There is no crash guard. A stray pointer in your report function takes
 //    down Notepad++ and every unsaved tab with it. Stay on ctx.Lines(),
 //    ctx.FindAll() and the helpers and you cannot go out of range.
-//    To debug: build Debug x64, attach Visual Studio to notepad++.exe,
-//    then set a breakpoint in your function.
+//    To see what your parser is doing, turn on REPORT_DEBUG_MODE below.
+//    If you need a breakpoint, build Debug x64 and attach Visual Studio to
+//    notepad++.exe.
 //
 //  * Save this file as UTF-8 *with BOM* if you use non-ASCII keywords.
 //    Without the BOM, MSVC reads the source in the system ANSI codepage and
@@ -82,7 +83,41 @@
 //    Trim(s)           leading and trailing whitespace removed
 //    Contains(s, kw)   StartsWith(s, kw)   EndsWith(s, kw)      -> bool
 //    ToInt(s, out)     ToDouble(s, out)    -> bool, out untouched on failure
+//
+//  ---- Debug mode -----------------------------------------------------------
+//
+//  Set REPORT_DEBUG_MODE to 1 below and rebuild. Notepad++ then opens a console
+//  window at startup, and Debug / Debugf calls inside your report function print
+//  to it — which is the fastest way to see what your parser is actually matching:
+//
+//      Debugf("L%-5d raw=[%s] ip=[%s]", lineNo, line, ip);
+//
+//  %s takes std::string_view, std::string and const char* directly; there is no
+//  need to pass a size and pointer pair. Width and precision work as usual.
+//  Debugf can never crash Notepad++ — a wrong conversion prints a marker.
+//
+//  While debug mode is on, the report cache is bypassed, so pressing the
+//  shortcut twice really runs your report twice.
+//
+//  Worth knowing:
+//    * Console output is slow. Debug against a small sample file, not a
+//      production log. REPORT_DEBUG_MAX_LINES below caps it so a per-line print
+//      cannot make Notepad++ look hung.
+//    * Arguments are still evaluated when debug mode is off, so avoid
+//      Debugf("%s", SomethingExpensive()) in a shipping build.
+//    * The console cannot be closed while Notepad++ runs — closing it would
+//      terminate the editor, so its close box is disabled. Minimise it instead,
+//      or rebuild with REPORT_DEBUG_MODE 0.
+//    * The console dies with the process, so it cannot show you the last lines
+//      before a crash.
 // =============================================================================
+
+// 1 = open a debug console at startup and enable Debug / Debugf. 0 = off.
+#define REPORT_DEBUG_MODE       0
+
+// Maximum lines of your own debug output per report run. 0 = unlimited.
+// Engine breadcrumbs are never counted or suppressed.
+#define REPORT_DEBUG_MAX_LINES  1000
 
 #include "../src/ReportApi.h"
 #include <map>
@@ -114,6 +149,11 @@ static void IpReport(const ReportContext& ctx, ReportBuilder& out)
     for (auto [lineNo, line] : ctx.Lines())
     {
         auto ip = Field(After(line, "IP: "), ' ', 0);
+
+        // Set REPORT_DEBUG_MODE to 1 above and uncomment this to watch every
+        // line go past in the console while you tune the extraction.
+        // Debugf("L%-5d raw=[%s] ip=[%s]", lineNo, line, ip);
+
         if (ip.empty()) continue;
 
         if (++hits[ip] == 1)

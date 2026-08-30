@@ -92,6 +92,9 @@ also offers **Select All**. **ESC** closes it.
 Each report registered in `CUSTOM_REPORTS[]` gets its own menu item. Results are
 cached per tab, so pressing the shortcut again is instant until you edit the file.
 
+While writing a parser, `REPORT_DEBUG_MODE` opens a console you can print to from
+inside your report function — see [Debugging a report](#debugging-a-report).
+
 Like Ctrl+Alt+W, Ctrl+Alt+E is independent of Ctrl+Alt+Q — you never have to parse
 first. A progress dialog with a working Cancel button appears while the report runs.
 
@@ -183,8 +186,8 @@ status bar. Phase 2 cannot be cancelled — it blocks until every match is fille
 ## Customization
 
 Edit **`config/LogPatterns.h`** (keywords, colors), **`config/OverviewConfig.h`** (panel
-appearance) or **`config/CustomReports.h`** (your own reports) and rebuild. No other
-files need to change.
+appearance) or **`config/CustomReports.h`** (your own reports, plus the debug-mode
+flags) and rebuild. No other files need to change.
 
 ### Add a Log Type keyword
 
@@ -322,6 +325,13 @@ auto ip = Field(After(line, "IP: "), ' ', 0);
 if (ip.empty()) continue;          // one check covers both steps
 ```
 
+#### Printing while you work
+
+`Debug(text)` and `Debugf(fmt, ...)` print from inside a report function to a
+console window, which is the quickest way to see what your parser is actually
+matching. Both are inert until you set `REPORT_DEBUG_MODE` — see
+[Debugging a report](#debugging-a-report).
+
 #### Guarantees
 
 - Every `string_view` from `ctx` or a helper points into a private snapshot that
@@ -336,7 +346,8 @@ if (ip.empty()) continue;          // one check covers both steps
 
 - **There is no crash guard.** A stray pointer in a report function takes down
   Notepad++ and every unsaved tab with it. Stay on `ctx.Lines()`, `ctx.FindAll()`
-  and the helpers and you cannot go out of range.
+  and the helpers and you cannot go out of range. To see what your parser is
+  actually doing, turn on [debug mode](#debugging-a-report).
 - **Save `CustomReports.h` as UTF-8 with BOM** if you use non-ASCII keywords.
   Without the BOM, MSVC reads the source in the system ANSI code page and your
   literal silently never matches the UTF-8 document.
@@ -346,7 +357,80 @@ if (ip.empty()) continue;          // one check covers both steps
 
 #### Debugging a report
 
-There is no crash guard and no test harness, so use the debugger:
+Set `REPORT_DEBUG_MODE` to `1` in `config/CustomReports.h` and rebuild. Notepad++
+then opens a console window at startup, and `Debug` / `Debugf` calls inside your
+report function print to it.
+
+```cpp
+// config/CustomReports.h
+#define REPORT_DEBUG_MODE       1      // 0 = off (default)
+#define REPORT_DEBUG_MAX_LINES  1000   // 0 = unlimited
+
+static void IpReport(const ReportContext& ctx, ReportBuilder& out)
+{
+    for (auto [lineNo, line] : ctx.Lines())
+    {
+        auto ip = Field(After(line, "IP: "), ' ', 0);
+
+        Debugf("L%-5d raw=[%s] ip=[%s]", lineNo, line, ip);
+
+        if (ip.empty()) continue;
+        out.AtLine(lineNo, ip);
+    }
+}
+```
+
+```
+==== IP Report ====
+[engine] buf=0x1a2f  stale=true -> caches invalidated
+[engine] report cache bypassed (debug mode)
+[engine] snapshot 45210 lines / 3355443 bytes
+[engine] entering report function
+L1     raw=[10:23:40 [ DEBUG ] boot] ip=[]
+L3     raw=[10:23:42 IP: 192.168.1.10 up] ip=[192.168.1.10]
+... debug output suppressed after 1000 lines
+[engine] report function returned, 7 rows
+[engine] dialog shown
+```
+
+| Constant | Default | Description |
+|---|---|---|
+| `REPORT_DEBUG_MODE` | `0` | `1` = open the console at startup and enable `Debug` / `Debugf` |
+| `REPORT_DEBUG_MAX_LINES` | `1000` | Cap on your own output per report run (`0` = unlimited) |
+
+| Call | Output |
+|---|---|
+| `Debug(text)` | One line of plain text |
+| `Debugf(fmt, ...)` | One line, printf syntax |
+
+`%s` takes `std::string_view`, `std::string` and `const char*` directly — there is
+no size-and-pointer pair to write. Supported conversions are `d i u o x X c`,
+`e E f F g G a A`, `s` and `%%`, with the usual width and precision. `Debugf` is a
+variadic template rather than C varargs, so a conversion that does not match its
+argument prints `<!bad-arg>` and a missing argument prints `<!no-arg>` — it cannot
+crash the editor the way a real `printf("%s", 42)` would.
+
+Lines prefixed `[engine]` come from the plugin itself. They are never suppressed
+by the output cap, so the line telling you the report function returned survives
+even when your own output was capped.
+
+**Worth knowing:**
+
+- Console output is slow, and a report runs on the UI thread. Debug against a
+  small sample file; `REPORT_DEBUG_MAX_LINES` exists so a per-line print on a
+  large log cannot make Notepad++ look hung.
+- **Debug mode bypasses the report cache**, so pressing the shortcut twice really
+  runs your report twice. Without that, the second press would print nothing.
+- Arguments are still evaluated when debug mode is off, so avoid
+  `Debugf("%s", SomethingExpensive())` in a shipping build.
+- **The console cannot be closed while Notepad++ runs.** Closing a console
+  terminates the process that owns it, which would take the editor and every
+  unsaved tab with it, so the close box is disabled. Minimise it, or rebuild with
+  `REPORT_DEBUG_MODE 0`.
+- The console dies with the process, so it cannot show you the last lines before
+  a crash.
+
+If you need a breakpoint rather than a print:
 
 1. Build **Debug | x64**
 2. Copy `log-highlighter.dll` into the plugin folder and start Notepad++
@@ -408,6 +492,7 @@ log-highlighter/
     ├── ReportApi.h               ← report authoring surface (the firewall)
     ├── Report.h / Report.cpp     ← report engine: snapshot, progress, encoding
     ├── ReportDialog.h / .cpp     ← modal read-only report window
+    ├── DebugConsole.h / .cpp     ← debug console (REPORT_DEBUG_MODE)
     ├── log-highlighter.h / .cpp  ← Scintilla indicator styles & bulk fill
     ├── OverviewPanel.h / .cpp    ← non-client-area minimap panel
     └── ProgressDialog.h / .cpp   ← modeless two-phase progress window
@@ -448,6 +533,28 @@ log-highlighter/
   invalidates the offset-dependent caches on next use — it never starts a scan
   itself. Parse Log fills the bookmark cache as a free side effect of its own
   scan, which creates no dependency in either direction.
+
+- **Debug console** (`DebugConsole.cpp`): allocated from the `NPPN_READY` handler,
+  never from `DllMain` — `AllocConsole` under the loader lock is not safe. The
+  close box is removed with `DeleteMenu(SC_CLOSE)` because closing a console
+  sends `CTRL_CLOSE_EVENT` to its owner, whose default handling would terminate
+  Notepad++. Output goes through `WriteConsoleW` after conversion from the
+  document's code page, so console code pages never enter into it.
+
+- **`Debugf` is a variadic template** (`ReportApi.h`): C varargs cannot carry a
+  `std::string_view` — which is what every extraction helper returns — and
+  `printf("%s", 42)` would dereference an integer. Since the framework ships no
+  crash guard, the debugging tool must not be the easiest way to crash the
+  editor. The format string is walked at runtime and each conversion formats one
+  argument of a type the template knows, delegating to `snprintf` for numerics so
+  width and precision still work.
+
+- **Debug flag is read at runtime** (`ReportApi.h` / `Report.cpp`):
+  `CustomReports.h` includes `ReportApi.h` *before* defining
+  `REPORT_DEBUG_MODE`, so an `#ifdef` in the header would never see the macro and
+  would silently compile `Debug` away even with debug mode on. An `extern bool`
+  set in `Report.cpp` avoids the ordering trap and keeps the flag in the one file
+  authors already edit.
 
 - **Report menu wiring** (`Plugin.cpp`): a Notepad++ command callback takes no
   arguments, so each report needs a distinct function pointer. Compile-time

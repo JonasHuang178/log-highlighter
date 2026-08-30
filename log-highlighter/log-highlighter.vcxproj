@@ -88,6 +88,7 @@
     <ClCompile Include="src\ProgressDialog.cpp" />
     <ClCompile Include="src\Report.cpp" />
     <ClCompile Include="src\ReportDialog.cpp" />
+    <ClCompile Include="src\DebugConsole.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="external\PluginInterface.h" />
@@ -105,6 +106,7 @@
     <ClInclude Include="src\ReportApi.h" />
     <ClInclude Include="src\Report.h" />
     <ClInclude Include="src\ReportDialog.h" />
+    <ClInclude Include="src\DebugConsole.h" />
     <ClInclude Include="config\CustomReports.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

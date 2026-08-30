@@ -458,7 +458,8 @@ public:
 
     // ---- engine side --------------------------------------------------------
 
-    bool Empty() const { return rows_.empty(); }
+    bool   Empty()    const { return rows_.empty(); }
+    size_t RowCount() const { return rows_.size(); }
 
     std::string Render() const
     {
@@ -719,6 +720,239 @@ inline bool ToDouble(std::string_view s, double& out)
 
     out = value;
     return true;
+}
+
+
+// =============================================================================
+//  Debug output
+//
+//  Enabled by REPORT_DEBUG_MODE in config/CustomReports.h. The flag is read at
+//  runtime rather than with #ifdef, because CustomReports.h includes this header
+//  *before* it defines the macro — a preprocessor test here would never see it
+//  and would silently compile Debug away even with debug mode on.
+//
+//  Debugf keeps printf syntax but is a variadic template, never C varargs.
+//  That is what lets %s accept std::string_view (which cannot travel through
+//  ... at all) and what makes a wrong conversion print a marker instead of
+//  dereferencing an integer. This framework ships no crash guard, so the
+//  debugging tool must not be the thing that takes the editor down.
+// =============================================================================
+
+// Set from REPORT_DEBUG_MODE / REPORT_DEBUG_MAX_LINES in Report.cpp.
+extern bool g_reportDebugEnabled;
+extern int  g_reportDebugMaxLines;
+
+// One line of author output. Implemented by the engine; applies the per-run
+// output cap and writes to the console. Bytes are in the document's code page.
+void DebugWrite(const char* text, size_t len);
+
+
+namespace report_detail
+{
+    // ---- argument classification ------------------------------------------
+
+    template <class T>
+    inline constexpr bool is_stringlike_v =
+        std::is_same_v<std::decay_t<T>, std::string_view> ||
+        std::is_same_v<std::decay_t<T>, std::string>      ||
+        std::is_same_v<std::decay_t<T>, const char*>      ||
+        std::is_same_v<std::decay_t<T>, char*>;
+
+    inline std::string_view AsView(std::string_view v)    { return v; }
+    inline std::string_view AsView(const std::string& v)  { return v; }
+    inline std::string_view AsView(const char* v)         { return v ? std::string_view(v)
+                                                                     : std::string_view(); }
+
+    inline bool IsIntConv(char c)
+    {
+        return c == 'd' || c == 'i' || c == 'u' || c == 'o' ||
+               c == 'x' || c == 'X' || c == 'c';
+    }
+
+    inline bool IsUnsignedConv(char c)
+    {
+        return c == 'u' || c == 'o' || c == 'x' || c == 'X';
+    }
+
+    inline bool IsFloatConv(char c)
+    {
+        return c == 'e' || c == 'E' || c == 'f' || c == 'F' ||
+               c == 'g' || c == 'G' || c == 'a' || c == 'A';
+    }
+
+    // ---- format string walking --------------------------------------------
+
+    // Copies literal text into `out`, collapsing "%%" to "%". Returns a pointer
+    // to the '%' that begins the next real conversion, or nullptr if the format
+    // string ended first. A trailing lone '%' is emitted literally.
+    inline const char* ScanToConversion(std::string& out, const char* p)
+    {
+        while (*p)
+        {
+            if (*p != '%')      { out += *p++;              continue; }
+            if (p[1] == '%')    { out += '%'; p += 2;       continue; }
+            if (p[1] == '\0')   { out += '%'; return nullptr; }
+            return p;
+        }
+        return nullptr;
+    }
+
+    // `p` points at '%'. Returns a pointer past the conversion character and
+    // sets `conv` to it ('\0' if the format string ended mid-conversion).
+    inline const char* ParseSpec(const char* p, char& conv)
+    {
+        const char* q = p + 1;
+        while (*q && std::strchr("-+ #0", *q))    ++q;   // flags
+        while (*q >= '0' && *q <= '9')            ++q;   // width
+        if (*q == '.')
+        {
+            ++q;
+            while (*q >= '0' && *q <= '9')        ++q;   // precision
+        }
+        while (*q && std::strchr("hlLjzt", *q))   ++q;   // length modifiers
+
+        conv = *q;
+        return *q ? q + 1 : q;
+    }
+
+    // Rebuilds a conversion with any length modifier stripped, optionally
+    // inserting "ll". The caller then passes an argument of the matching width,
+    // so "%d" with a short and "%d" with a long long both come out right.
+    inline std::string RebuildSpec(const char* spec, size_t len,
+                                   char conv, bool longLong)
+    {
+        std::string s;
+        s.reserve(len + 3);
+        s += '%';
+
+        size_t i = 1;
+        while (i < len && std::strchr("-+ #0", spec[i]))       s += spec[i++];
+        while (i < len && spec[i] >= '0' && spec[i] <= '9')    s += spec[i++];
+        if (i < len && spec[i] == '.')
+        {
+            s += spec[i++];
+            while (i < len && spec[i] >= '0' && spec[i] <= '9') s += spec[i++];
+        }
+
+        if (longLong) s += "ll";
+        s += conv;
+        return s;
+    }
+
+    // snprintf into `out` with no length limit and no truncation.
+    template <class V>
+    inline void AppendFormatted(std::string& out, const char* spec, V value)
+    {
+        const int n = std::snprintf(nullptr, 0, spec, value);
+        if (n <= 0) return;
+
+        const size_t base = out.size();
+        out.resize(base + static_cast<size_t>(n) + 1);
+        std::snprintf(&out[base], static_cast<size_t>(n) + 1, spec, value);
+        out.resize(base + static_cast<size_t>(n));   // drop the NUL
+    }
+
+    // ---- one argument, one conversion --------------------------------------
+
+    template <class T>
+    inline void EmitArg(std::string& out, const char* spec, size_t len,
+                        char conv, const T& v)
+    {
+        if constexpr (is_stringlike_v<T>)
+        {
+            if (conv != 's') { out += "<!bad-arg>"; return; }
+
+            const std::string_view sv = AsView(v);
+
+            // Plain "%s" is the overwhelmingly common case: append directly,
+            // with no copy and no truncation.
+            if (len == 2) { out.append(sv.data(), sv.size()); return; }
+
+            const std::string tmp(sv);
+            AppendFormatted(out, RebuildSpec(spec, len, 's', false).c_str(),
+                            tmp.c_str());
+        }
+        else if constexpr (std::is_integral_v<T>)
+        {
+            if (!IsIntConv(conv)) { out += "<!bad-arg>"; return; }
+
+            if (conv == 'c')
+                AppendFormatted(out, RebuildSpec(spec, len, 'c', false).c_str(),
+                                static_cast<int>(v));
+            else if (IsUnsignedConv(conv))
+                AppendFormatted(out, RebuildSpec(spec, len, conv, true).c_str(),
+                                static_cast<unsigned long long>(v));
+            else
+                AppendFormatted(out, RebuildSpec(spec, len, conv, true).c_str(),
+                                static_cast<long long>(v));
+        }
+        else if constexpr (std::is_floating_point_v<T>)
+        {
+            if (!IsFloatConv(conv)) { out += "<!bad-arg>"; return; }
+
+            AppendFormatted(out, RebuildSpec(spec, len, conv, false).c_str(),
+                            static_cast<double>(v));
+        }
+        else
+        {
+            out += "<!bad-arg>";
+        }
+    }
+
+    // ---- recursive walker ---------------------------------------------------
+
+    // No arguments left: any remaining conversions are marked, never guessed.
+    inline void FormatInto(std::string& out, const char* fmt)
+    {
+        for (;;)
+        {
+            const char* p = ScanToConversion(out, fmt);
+            if (!p) return;
+
+            char conv = '\0';
+            fmt = ParseSpec(p, conv);
+            out += "<!no-arg>";
+        }
+    }
+
+    template <class T, class... Rest>
+    inline void FormatInto(std::string& out, const char* fmt,
+                           const T& first, const Rest&... rest)
+    {
+        const char* p = ScanToConversion(out, fmt);
+        if (!p) return;   // surplus arguments are simply dropped
+
+        char conv = '\0';
+        const char* end = ParseSpec(p, conv);
+
+        if (conv == '\0') { out += "<!bad-arg>"; return; }
+
+        EmitArg(out, p, static_cast<size_t>(end - p), conv, first);
+        FormatInto(out, end, rest...);
+    }
+
+}  // namespace report_detail
+
+
+// One line of plain text.
+inline void Debug(std::string_view text)
+{
+    if (!g_reportDebugEnabled) return;
+    DebugWrite(text.data(), text.size());
+}
+
+// One line, printf syntax. %s takes string_view / std::string / const char*.
+// Supported conversions: d i u o x X c  e E f F g G a A  s  %%
+// Anything else, or a conversion that does not match its argument, prints a
+// visible marker rather than misbehaving.
+template <class... Args>
+inline void Debugf(const char* fmt, Args&&... args)
+{
+    if (!g_reportDebugEnabled) return;
+
+    std::string out;
+    report_detail::FormatInto(out, fmt ? fmt : "", args...);
+    DebugWrite(out.data(), out.size());
 }
 
 

@@ -106,22 +106,37 @@ enum NppMsg : UINT {
     NPPMSG                      = WM_USER + 1000,
     NPPM_GETCURRENTSCINTILLA    = NPPMSG + 4,
     NPPM_GETCURRENTLANGTYPE     = NPPMSG + 5,
-    // wParam = buffer length in TCHARs, lParam = TCHAR* buffer.
-    //
-    // NOTE: this value is load-bearing. Sending a *wrong* Notepad++ message id
-    // with pointer-shaped arguments is not a no-op — Notepad++ will interpret
-    // wParam/lParam according to whatever message that id really is and write
-    // through them, which crashes the editor. The path getters live at +40..+44;
-    // the surrounding ids in this enum (SETSTATUSBAR +24, GETPLUGINSCONFIGDIR
-    // +46) bracket them and confirm the offset.
-    NPPM_GETFULLCURRENTPATH     = NPPMSG + 40,
     NPPM_SETSTATUSBAR           = NPPMSG + 24,
     NPPM_GETPLUGINSCONFIGDIR    = NPPMSG + 46,
     NPPM_MENUCOMMAND            = NPPMSG + 48,
     NPPM_DMMREGASDCKDLG         = NPPMSG + 33, // register a docking panel
-    NPPM_GETCURRENTVIEW         = NPPMSG + 98,
+    NPPM_GETCURRENTVIEW         = NPPMSG + 88,
     NPPM_GETCURRENTBUFFERID     = NPPMSG + 60,
 };
+
+// ---------------------------------------------------------------------------
+// Path getters
+//
+// These are NOT in the NPPMSG range. They hang off a separate base, and every
+// value below is taken from Notepad_plus_msgs.h rather than inferred:
+//
+//     #define RUNCOMMAND_USER (WM_USER + 3000)
+//     FULL_CURRENT_PATH = 1, CURRENT_DIRECTORY = 2, FILE_NAME = 3,
+//     NAME_PART = 4, EXT_PART = 5
+//
+// Do not guess a Notepad++ message id. A wrong one is not inert: Notepad++
+// interprets wParam/lParam as whatever message that id really is. NPPMSG + 17
+// is NPPM_GETOPENFILENAMESPRIMARY, which writes through wParam as a pointer
+// array and crashed the editor outright; NPPMSG + 40 is NPPM_SETMENUITEMCHECK,
+// which silently toggled a menu item's check state on every call. Both were
+// tried here before the header was actually consulted.
+// ---------------------------------------------------------------------------
+static constexpr UINT RUNCOMMAND_USER   = WM_USER + 3000;
+static constexpr UINT FULL_CURRENT_PATH = 1;
+
+// wParam = buffer size in wchar_t, lParam = wchar_t* buffer.
+// Returns TRUE on success, FALSE if the buffer is too small.
+static constexpr UINT NPPM_GETFULLCURRENTPATH = RUNCOMMAND_USER + FULL_CURRENT_PATH;
 
 // ---------------------------------------------------------------------------
 // Notepad++ notification codes  (nmhdr.code in WM_NOTIFY to plugin)

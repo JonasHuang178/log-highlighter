@@ -1,6 +1,7 @@
 #include "Plugin.h"
 #include "Parser.h"
 #include "Report.h"
+#include "DebugConsole.h"
 #include "log-highlighter.h"
 #include "OverviewPanel.h"
 #include "ProgressDialog.h"
@@ -75,6 +76,34 @@ void InvalidateIfStale(BufferState& buf)
     buf.reportIndex = -1;
 
     buf.stale = false;
+}
+
+// Marks every tracked buffer stale and returns how many actually transitioned
+// from not-stale to stale.
+//
+// SCN_MODIFIED carries no buffer id, so the handler cannot tell which document
+// changed — it can only guess the active one or cover everything. Guessing is
+// wrong precisely when it matters (a modification that did not go through the
+// active buffer, as with Replace All in All Opened Documents) and wrong
+// silently, leaving that buffer serving a cache built from older content.
+// Covering everything only costs a rescan on next use.
+//
+// Buffers with no entry are deliberately not created here: no entry means no
+// cache to invalidate, and they scan fresh on first use anyway.
+static int MarkAllBuffersStale()
+{
+    int transitioned = 0;
+
+    for (auto& entry : g_bufferStates)
+    {
+        if (!entry.second.stale)
+        {
+            entry.second.stale = true;
+            ++transitioned;
+        }
+    }
+
+    return transitioned;
 }
 
 // Collects the 0-based lines carrying a BOOKMARK match, in document order.
@@ -464,7 +493,38 @@ __declspec(dllexport) void beNotified(SCNotification* notification)
         if (notification->modificationType &
             (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT))
         {
-            CurrentBuffer().stale = true;
+            const int marked = MarkAllBuffersStale();
+
+            // Log the transition only. SCN_MODIFIED fires on every keystroke;
+            // once everything is already stale there is nothing new to say, so
+            // continued typing stays silent until something rescans.
+            if (marked > 0 && ReportDebugEnabled())
+            {
+                wchar_t path[MAX_PATH * 2] = { 0 };
+                ::SendMessage(g_nppData._nppHandle, NPPM_GETFULLCURRENTPATH,
+                              static_cast<WPARAM>(MAX_PATH * 2 - 1),
+                              reinterpret_cast<LPARAM>(path));
+                path[MAX_PATH * 2 - 1] = L'\0';
+
+                const wchar_t* name = ::wcsrchr(path, L'\\');
+                name = name ? name + 1 : path;
+
+                wchar_t line[MAX_PATH + 96];
+                ::swprintf_s(line,
+                             L"SCN_MODIFIED  %s  -> %d buffer(s) marked stale",
+                             *name ? name : L"(untitled)", marked);
+                ReportEngineLogW(line);
+            }
+        }
+        break;
+
+    case NPPN_READY:
+        // Earliest point at which Notepad++ is fully initialised. The console
+        // must not be allocated from DllMain, which runs under the loader lock.
+        if (ReportDebugEnabled())
+        {
+            OpenDebugConsole();
+            ReportEngineLog("debug console ready (REPORT_DEBUG_MODE is on)");
         }
         break;
 
