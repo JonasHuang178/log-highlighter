@@ -27,6 +27,24 @@
 
 ## 5. Hand off the remainder
 
-- [ ] 5.1 Confirm `fix-spec-config-drift` is still blocked and record why: `log-patterns-config` is one of its target specs and remains invalid, so `openspec archive` will keep refusing until the follow-up change lands
-- [ ] 5.2 Propose `fix-spec-requirement-scenarios` covering the 7 requirements listed in this change's Deferred section, so the work is captured rather than left in a conversation
-- [ ] 5.3 Do not attempt to archive `fix-spec-config-drift` with `--skip-specs` as a shortcut — that would silently discard its deltas, which are the entire point of that change
+- [x] 5.1 Confirm `fix-spec-config-drift` is still blocked and record why: `log-patterns-config` is one of its target specs and remains invalid, so `openspec archive` will keep refusing until the follow-up change lands
+
+  **Resolved 2026-09-13, and the prediction was half right.** The archive did
+  refuse, exactly as described, and wrote nothing. But it refused over a single
+  requirement — `MAKE_BGR macro`, one of the three scenario-less requirements
+  this change deferred — so the blockage was narrower than "wait for the whole
+  follow-up". Adding one scenario to that requirement cleared it, and
+  `fix-spec-config-drift` archived on its own, ahead of
+  `fix-spec-requirement-scenarios`. The deferred list shrank from three specs to
+  two as a side effect.
+
+- [x] 5.2 Propose `fix-spec-requirement-scenarios` covering the 7 requirements listed in this change's Deferred section, so the work is captured rather than left in a conversation
+
+  Proposed and archived 2026-09-13 as
+  `archive/2026-09-13-fix-spec-requirement-scenarios`, covering the six
+  requirements that remained after 5.1 cleared `MAKE_BGR macro`.
+
+- [x] 5.3 Do not attempt to archive `fix-spec-config-drift` with `--skip-specs` as a shortcut — that would silently discard its deltas, which are the entire point of that change
+
+  Honoured. The archive ran without `--skip-specs` and applied both deltas
+  (`log-patterns-config` +3/~2/-2, `overview-panel` +1).

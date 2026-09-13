@@ -4,18 +4,19 @@
 #include <functional>
 
 // ---------------------------------------------------------------------------
-//  MatchType - corresponds to the two rule types in config/LogPatterns.h
+//  MatchType - corresponds to the three rule types in config/LogPatterns.h
 // ---------------------------------------------------------------------------
 enum class MatchType { LOG_TYPE, STEP_TYPE, BOOKMARK };
 
 // ---------------------------------------------------------------------------
 //  Match - one parse result entry
 //
-//  type       : rule type (LOG_TYPE or STEP_TYPE)
-//  ruleIndex  : index into LOG_TYPE_RULES[] or STEP_TYPE_RULES[]
+//  type       : rule type (LOG_TYPE, STEP_TYPE or BOOKMARK)
+//  ruleIndex  : index into the rule table named by `type`
 //  byteOffset : start byte position in the document
 //  length     : byte length of the highlighted range
 //               LOG_TYPE  -> length of the keyword itself
+//               BOOKMARK  -> length of the keyword itself
 //               STEP_TYPE -> length from prefix start to end of line
 // ---------------------------------------------------------------------------
 struct Match {
