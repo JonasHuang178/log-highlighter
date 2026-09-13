@@ -1,8 +1,5 @@
-## Purpose
+## MODIFIED Requirements
 
-Reporting how long a parse took, so the cost of running it on a large file is
-visible rather than guessed at.
-## Requirements
 ### Requirement: Parse time displayed in Notepad++ status bar
 After every successful `ParseLog()` invocation (not cancelled), the plugin SHALL write a timing string to the Notepad++ status bar using:
 ```cpp
@@ -71,4 +68,3 @@ absorbs a clock adjustment that happened to land mid-parse.
 #### Scenario: System clock adjusted mid-parse
 - **WHEN** the system wall clock is changed while a parse is running
 - **THEN** the reported duration still reflects elapsed real time and is unaffected by the adjustment
-
