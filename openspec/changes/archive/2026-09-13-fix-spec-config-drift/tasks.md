@@ -32,9 +32,9 @@ main specs" and is how every prior change in this repo synced (`adafa41`,
 `0493b02`, `b8fd849` — each archives and syncs in one commit). Applying them by
 hand would double-apply. Only the post-archive verification is a task here.
 
-- [ ] 3.1 After archiving, re-read `openspec/specs/log-patterns-config/spec.md` end to end and confirm no remaining text pins specific shipped keywords as normative
-- [ ] 3.2 After archiving, confirm `openspec/specs/overview-panel/spec.md` carries "Panel background matches the adjacent scrollbar"
-- [ ] 3.3 After archiving, confirm "Default rules" and "Default bookmark rules" are gone and that the case-sensitivity scenario survives under "BookmarkRule struct"
+- [x] 3.1 After archiving, re-read `openspec/specs/log-patterns-config/spec.md` end to end and confirm no remaining text pins specific shipped keywords as normative
+- [x] 3.2 After archiving, confirm `openspec/specs/overview-panel/spec.md` carries "Panel background matches the adjacent scrollbar"
+- [x] 3.3 After archiving, confirm "Default rules" and "Default bookmark rules" are gone and that the case-sensitivity scenario survives under "BookmarkRule struct"
 
 ## 4. Documentation
 
